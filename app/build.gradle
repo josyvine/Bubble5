@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'com.google.gms.google-services'
 
 android {
     namespace 'com.hfm.app'
@@ -75,4 +76,11 @@ dependencies {
 
     // OkHttp for Gemini API
     implementation 'com.squareup.okhttp3:okhttp:4.9.3'
+
+    // Firebase Bill of Materials (BoM) - manages versions for Firebase libraries
+    implementation platform('com.google.firebase:firebase-bom:33.0.0')
+
+    // Firebase SDKs for HFM Messenger Drop
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
 }
