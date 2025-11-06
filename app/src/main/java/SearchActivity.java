@@ -677,53 +677,73 @@ public class SearchActivity extends Activity implements SearchAdapter.OnItemClic
 
     private void fetchFolderSuggestions(final String constraint) {
         new Thread(new Runnable() {
-				@Override
-				public void run() {
-					String lastWord = constraint;
-					int lastSpaceIndex = constraint.lastIndexOf(' ');
-					if (lastSpaceIndex != -1) {
-						lastWord = constraint.substring(lastSpaceIndex + 1);
-					}
-					if (lastWord.isEmpty()) {
-						runOnUiThread(new Runnable() {
-								@Override
-								public void run() {
-									if (searchInput != null) searchInput.dismissDropDown();
-								}
-							});
-						return;
-					}
-					Set<String> folderSet = new HashSet<>();
-					Uri uri = MediaStore.Files.getContentUri("external");
-					String[] projection = {MediaStore.Files.FileColumns.DATA};
-					Cursor cursor = getContentResolver().query(uri, projection, null, null, null);
-					if (cursor != null) {
-						int dataColumn = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATA);
-						while (cursor.moveToNext()) {
-							String path = cursor.getString(dataColumn);
-							if (path != null) {
-								File parentFile = new File(path).getParentFile();
-								if (parentFile != null && parentFile.getName().toLowerCase().startsWith(lastWord.toLowerCase())) {
-									folderSet.add(parentFile.getName());
-								}
-							}
-						}
-						cursor.close();
-					}
-					final List<String> suggestions = new ArrayList<>(folderSet);
-					runOnUiThread(new Runnable() {
-							@Override
-							public void run() {
-								if (searchInput == null) return;
-								ArrayAdapter<String> suggestionAdapter = new ArrayAdapter<>(SearchActivity.this, android.R.layout.simple_dropdown_item_1line, suggestions);
-								searchInput.setAdapter(suggestionAdapter);
-								if (!suggestions.isEmpty() && searchInput.isFocused()) {
-									searchInput.showDropDown();
-								}
-							}
-						});
-				}
-			}).start();
+            @Override
+            public void run() {
+                String lastWord = constraint;
+                int lastSpaceIndex = constraint.lastIndexOf(' ');
+                if (lastSpaceIndex != -1) {
+                    lastWord = constraint.substring(lastSpaceIndex + 1);
+                }
+
+                if (lastWord.isEmpty()) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (searchInput != null) searchInput.dismissDropDown();
+                        }
+                    });
+                    return;
+                }
+
+                final Set<String> folderSet = new HashSet<>();
+                Uri uri = MediaStore.Files.getContentUri("external");
+
+                // Efficiently query for DISTINCT folder names directly from the MediaStore.
+                // This prevents the CursorWindow overflow crash by only fetching a small list of unique names.
+                String[] projection = {"DISTINCT " + MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME};
+
+                // Filter the results in the database, which is much faster than doing it in Java.
+                String selection = MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME + " LIKE ?";
+                String[] selectionArgs = {lastWord + "%"};
+                String sortOrder = MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME + " ASC";
+
+                Cursor cursor = null;
+                try {
+                    cursor = getContentResolver().query(uri, projection, selection, selectionArgs, sortOrder);
+
+                    if (cursor != null) {
+                        int bucketColumnIndex = cursor.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME);
+                        while (cursor.moveToNext()) {
+                            String folderName = cursor.getString(bucketColumnIndex);
+                            if (folderName != null) {
+                                folderSet.add(folderName);
+                            }
+                        }
+                    }
+                } finally {
+                    if (cursor != null) {
+                        cursor.close(); // Ensure the cursor is always closed.
+                    }
+                }
+
+                final List<String> suggestions = new ArrayList<>(folderSet);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        // Check if the activity is still alive before updating the UI
+                        if (isFinishing() || isDestroyed() || searchInput == null) {
+                            return;
+                        }
+                        ArrayAdapter<String> suggestionAdapter = new ArrayAdapter<>(SearchActivity.this,
+                                android.R.layout.simple_dropdown_item_1line, suggestions);
+                        searchInput.setAdapter(suggestionAdapter);
+                        if (!suggestions.isEmpty() && searchInput.isFocused()) {
+                            searchInput.showDropDown();
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     private void initiateDeletionProcess() {
