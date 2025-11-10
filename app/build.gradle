@@ -21,7 +21,7 @@ android {
     }
 
     compileOptions {
-        // Updated to Java 17 for jlibtorrent 2.x compatibility
+        // Updated to Java 17 for libtorrent4j 2.x compatibility
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -82,6 +82,8 @@ dependencies {
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
 
-    // TORRENT CLIENT - Official libtorrent4j from Maven Central (includes core + ARM64 natives)
-    implementation 'org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-38'
+    // TORRENT CLIENT - Official libtorrent4j from Maven Central (core Java + ARM64 natives)
+    def libtorrentVersion = "2.1.0-38"
+    implementation "org.libtorrent4j:libtorrent4j:$libtorrentVersion"
+    implementation "org.libtorrent4j:libtorrent4j-android-arm64:$libtorrentVersion"
 }
