@@ -1,4 +1,4 @@
-package com.txtify.app; 
+package com.txtify.app;
 
 import android.Manifest;
 import android.content.ClipData;
@@ -47,7 +47,8 @@ import com.google.android.play.core.appupdate.AppUpdateManager;
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory;
 import com.google.android.play.core.install.model.AppUpdateType;
 import com.google.android.play.core.install.model.UpdateAvailability;
-import com.google.android.play.core.tasks.Task;
+// FIX: Changed from play.core.tasks to gms.tasks
+import com.google.android.gms.tasks.Task;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -75,7 +76,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private static final int MULTI_FILE_PICKER_REQUEST_CODE = 103;
     private static final int ZIP_PICKER_REQUEST_CODE = 104;
     private static final int ZIP_CONTENTS_REQUEST_CODE = 105;
-    
+
     // NEW: Request code for the In-App Update flow
     private static final int APP_UPDATE_REQUEST_CODE = 200;
 
@@ -155,7 +156,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
                     // This example applies an immediate update. To apply a flexible update
                     // instead, pass in AppUpdateType.FLEXIBLE
                     && appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
-                
+
                 try {
                     appUpdateManager.startUpdateFlowForResult(
                             appUpdateInfo,
@@ -223,22 +224,22 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         projectListView.setAdapter(projectListAdapter);
 
         projectListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-				@Override
-				public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-					showConversionDialog(projectNames.get(position));
-				}
-			});
+                                @Override
+                                public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                                        showConversionDialog(projectNames.get(position));
+                                }
+                        });
 
         MenuItem switchItem = navigationView.getMenu().findItem(R.id.nav_create_copies_toggle);
         SwitchCompat createCopySwitch = (SwitchCompat) switchItem.getActionView();
         createCopySwitch.setChecked(shouldCreateCopies);
 
         createCopySwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-				@Override
-				public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-					shouldCreateCopies = isChecked;
-				}
-			});
+                                @Override
+                                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                                        shouldCreateCopies = isChecked;
+                                }
+                        });
 
         mainContentFrame = findViewById(R.id.main_content_frame);
         junctionBox = findViewById(R.id.junction_box_drop_zone);
@@ -309,12 +310,12 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
                     return true;
 
                 case DragEvent.ACTION_DRAG_ENTERED:
-					v.setBackgroundColor(highlightColor);
-					return true;
+                                        v.setBackgroundColor(highlightColor);
+                                        return true;
 
                 case DragEvent.ACTION_DRAG_EXITED:
-					v.setBackgroundColor(originalColor);
-					return true;
+                                        v.setBackgroundColor(originalColor);
+                                        return true;
 
                 case DragEvent.ACTION_DRAG_LOCATION:
                     return true;
@@ -385,26 +386,26 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         builder.setView(view);
 
         builder.setPositiveButton("Save", new DialogInterface.OnClickListener() {
-				@Override
-				public void onClick(DialogInterface dialog, int which) {
-					String newFolderName = input.getText().toString().trim();
-					if (newFolderName.isEmpty()) {
-						new ProjectConversionTask().execute(projectName, projectFiles, nextAvailableFolderName);
-						return;
-					}
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                        String newFolderName = input.getText().toString().trim();
+                                        if (newFolderName.isEmpty()) {
+                                                new ProjectConversionTask().execute(projectName, projectFiles, nextAvailableFolderName);
+                                                return;
+                                        }
 
-					DocumentFile baseDir = DocumentFile.fromTreeUri(getApplicationContext(), customSaveFolderUri);
-					DocumentFile folderToRename = baseDir.findFile(nextAvailableFolderName);
+                                        DocumentFile baseDir = DocumentFile.fromTreeUri(getApplicationContext(), customSaveFolderUri);
+                                        DocumentFile folderToRename = baseDir.findFile(nextAvailableFolderName);
 
-					if (folderToRename != null && folderToRename.renameTo(newFolderName)) {
-						Toast.makeText(MainActivity.this, "Folder renamed to " + newFolderName, Toast.LENGTH_SHORT).show();
-						new ProjectConversionTask().execute(projectName, projectFiles, newFolderName);
-					} else {
-						Toast.makeText(MainActivity.this, "Could not rename. Saving to default folder.", Toast.LENGTH_LONG).show();
-						new ProjectConversionTask().execute(projectName, projectFiles, nextAvailableFolderName);
-					}
-				}
-			});
+                                        if (folderToRename != null && folderToRename.renameTo(newFolderName)) {
+                                                Toast.makeText(MainActivity.this, "Folder renamed to " + newFolderName, Toast.LENGTH_SHORT).show();
+                                                new ProjectConversionTask().execute(projectName, projectFiles, newFolderName);
+                                        } else {
+                                                Toast.makeText(MainActivity.this, "Could not rename. Saving to default folder.", Toast.LENGTH_LONG).show();
+                                                new ProjectConversionTask().execute(projectName, projectFiles, nextAvailableFolderName);
+                                        }
+                                }
+                        });
         builder.setNegativeButton("Cancel", null);
         builder.show();
     }
@@ -444,26 +445,26 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         builder.setView(view);
 
         builder.setPositiveButton("Save", new DialogInterface.OnClickListener() {
-				@Override
-				public void onClick(DialogInterface dialog, int which) {
-					String newFolderName = input.getText().toString().trim();
-					if (newFolderName.isEmpty()) {
-						new ZipConversionTask().execute(nextAvailableFolderName, zipUri, selectedItems);
-						return;
-					}
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                        String newFolderName = input.getText().toString().trim();
+                                        if (newFolderName.isEmpty()) {
+                                                new ZipConversionTask().execute(nextAvailableFolderName, zipUri, selectedItems);
+                                                return;
+                                        }
 
-					DocumentFile baseDir = DocumentFile.fromTreeUri(getApplicationContext(), customSaveFolderUri);
-					DocumentFile folderToRename = baseDir.findFile(nextAvailableFolderName);
+                                        DocumentFile baseDir = DocumentFile.fromTreeUri(getApplicationContext(), customSaveFolderUri);
+                                        DocumentFile folderToRename = baseDir.findFile(nextAvailableFolderName);
 
-					if (folderToRename != null && folderToRename.renameTo(newFolderName)) {
-						Toast.makeText(MainActivity.this, "Folder renamed to " + newFolderName, Toast.LENGTH_SHORT).show();
-						new ZipConversionTask().execute(newFolderName, zipUri, selectedItems);
-					} else {
-						Toast.makeText(MainActivity.this, "Could not rename. Saving to default folder.", Toast.LENGTH_LONG).show();
-						new ZipConversionTask().execute(nextAvailableFolderName, zipUri, selectedItems);
-					}
-				}
-			});
+                                        if (folderToRename != null && folderToRename.renameTo(newFolderName)) {
+                                                Toast.makeText(MainActivity.this, "Folder renamed to " + newFolderName, Toast.LENGTH_SHORT).show();
+                                                new ZipConversionTask().execute(newFolderName, zipUri, selectedItems);
+                                        } else {
+                                                Toast.makeText(MainActivity.this, "Could not rename. Saving to default folder.", Toast.LENGTH_LONG).show();
+                                                new ZipConversionTask().execute(nextAvailableFolderName, zipUri, selectedItems);
+                                        }
+                                }
+                        });
         builder.setNegativeButton("Cancel", null);
         builder.show();
     }
@@ -477,7 +478,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
+
         // NEW: Handle the result of the In-App Update
         if (requestCode == APP_UPDATE_REQUEST_CODE) {
             if (resultCode != RESULT_OK) {
