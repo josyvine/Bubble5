@@ -6,7 +6,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -51,6 +50,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class FloatingTranslatorService extends Service {
+
+    private static FloatingTranslatorService sInstance;
 
     private WindowManager windowManager;
 
@@ -107,6 +108,10 @@ public class FloatingTranslatorService extends Service {
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
+    public static FloatingTranslatorService getInstance() {
+        return sInstance;
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
@@ -126,12 +131,14 @@ public class FloatingTranslatorService extends Service {
                 
                 this.shouldCopyToClipboard = copyToClip;
                 
-                // If we get a direct RECT, it means the selection is done.
-                // However, if the user did a "Two-Line Scroll", the capture should have 
-                // ideally happened during the scroll. 
-                // For the "Two-Line" logic specifically, we perform a single capture 
-                // of the final area provided.
-                onCropFinished(selectionRect);
+                // CHECK: Do we have burst images waiting from the manual scroll?
+                if (!capturedBitmaps.isEmpty()) {
+                    // Yes, this is the end of the Two-Line flow.
+                    processTwoLineResult(selectionRect);
+                } else {
+                    // No, this is likely a standard single capture or fallback
+                    onCropFinished(selectionRect);
+                }
             }
         }
         return START_NOT_STICKY;
@@ -140,6 +147,7 @@ public class FloatingTranslatorService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        sInstance = this;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         mediaProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -172,29 +180,30 @@ public class FloatingTranslatorService extends Service {
         closeRegionHeight = screenHeight / 5;
     }
 
-    // Called by CropSelectionView to start "Burst" (Continuous) capture
+    // Called by TwoLineOverlayService to start recording
     public void startBurstCapture() {
         if (mediaProjection != null) {
             isBurstMode = true;
             capturedBitmaps.clear();
             
-            // If capture isn't running, start it. 
-            // We use a dummy fullscreen rect to initialize the reader if needed, 
-            // but usually we want to capture full screen and crop later.
+            // Start capturing full screen continuously
             if (imageReader == null) {
-                // Initialize with full screen rect
+                // Full screen rect
                 currentCropRect = new Rect(0, 0, screenWidth, screenHeight);
                 startCapture(currentCropRect);
             }
+        } else {
+            Toast.makeText(this, "Permission missing. Restart app.", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // Called by CropSelectionView to stop "Burst" and process results
+    // Called by TwoLineOverlayService to pause/stop recording (but keep images in memory)
     public void stopBurstCapture() {
         isBurstMode = false;
-        // The onImageAvailable listener will detect this flag change and finish up
+        stopCapture(); // This closes the reader, but capturedBitmaps list remains full
     }
 
+    // Called for Single-Box selection (Original Feature)
     public void onCropFinished(Rect selectedRect) {
         if (cropSelectionView != null) {
             windowManager.removeView(cropSelectionView);
@@ -204,10 +213,8 @@ public class FloatingTranslatorService extends Service {
 
         if (mediaProjection != null) {
             this.currentCropRect = selectedRect;
-            // Clear previous captures if this is a fresh single-shot
-            if (!isBurstMode) {
-                capturedBitmaps.clear();
-            }
+            // Clear previous captures for single mode
+            capturedBitmaps.clear();
             startCapture(selectedRect);
         } else {
             Toast.makeText(this, "Permission not available.", Toast.LENGTH_SHORT).show();
@@ -216,7 +223,6 @@ public class FloatingTranslatorService extends Service {
 
     private void startCapture(final Rect cropRect) {
         if (imageReader != null) {
-            // Already capturing (likely in burst mode), just update rect if needed
             return;
         }
 
@@ -254,25 +260,35 @@ public class FloatingTranslatorService extends Service {
                             Bitmap fullBitmap = Bitmap.createBitmap(screenWidth + rowPadding / pixelStride, screenHeight, Bitmap.Config.ARGB_8888);
                             fullBitmap.copyPixelsFromBuffer(buffer);
 
-                            // Safely crop
-                            Rect rectToUse = (currentCropRect != null) ? currentCropRect : cropRect;
-                            int left = Math.max(0, rectToUse.left);
-                            int top = Math.max(0, rectToUse.top);
-                            int width = Math.min(rectToUse.width(), fullBitmap.getWidth() - left);
-                            int height = Math.min(rectToUse.height(), fullBitmap.getHeight() - top);
-                            
-                            if (width > 0 && height > 0) {
-                                Bitmap croppedBitmap = Bitmap.createBitmap(fullBitmap, left, top, width, height);
-                                capturedBitmaps.add(croppedBitmap);
+                            // Safely crop based on mode
+                            Bitmap capturedFrame;
+                            if (isBurstMode) {
+                                // In burst mode, we capture the full screen. We will crop later based on lines.
+                                capturedFrame = fullBitmap; // Keep full
+                            } else {
+                                // Single mode: Crop immediately
+                                int left = Math.max(0, cropRect.left);
+                                int top = Math.max(0, cropRect.top);
+                                int width = Math.min(cropRect.width(), fullBitmap.getWidth() - left);
+                                int height = Math.min(cropRect.height(), fullBitmap.getHeight() - top);
+                                
+                                if (width > 0 && height > 0) {
+                                    capturedFrame = Bitmap.createBitmap(fullBitmap, left, top, width, height);
+                                    fullBitmap.recycle();
+                                } else {
+                                    fullBitmap.recycle();
+                                    capturedFrame = null;
+                                }
                             }
-                            
-                            fullBitmap.recycle();
 
-                            // If we are in burst mode (user dragging), we keep capturing.
-                            // If user stopped dragging (isBurstMode == false), we process and close.
+                            if (capturedFrame != null) {
+                                capturedBitmaps.add(capturedFrame);
+                            }
+
+                            // If NOT in burst mode, this is a single shot, so we finish immediately.
                             if (!isBurstMode) {
                                 stopCapture();
-                                processCapturedBitmaps();
+                                processSingleShotResult();
                             }
                             
                             image.close();
@@ -298,24 +314,60 @@ public class FloatingTranslatorService extends Service {
         }
     }
 
-    private void processCapturedBitmaps() {
+    // Logic for Standard Blue Box
+    private void processSingleShotResult() {
+        if (!capturedBitmaps.isEmpty()) {
+            performOcr(capturedBitmaps.get(0));
+        }
+    }
+
+    // Logic for Two-Line Scrolling Flow
+    private void processTwoLineResult(Rect limitRect) {
         if (capturedBitmaps.isEmpty()) {
-            Toast.makeText(this, "No image captured", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No content captured.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Bitmap finalBitmap;
-        if (capturedBitmaps.size() > 1) {
-            // Stitch multiple frames from the drag-scroll
-            finalBitmap = ImageStitcher.stitchImages(capturedBitmaps);
-        } else {
-            finalBitmap = capturedBitmaps.get(0);
+        // 1. Stitch all captured full-screen frames into one tall image
+        Bitmap longBitmap = ImageStitcher.stitchImages(capturedBitmaps);
+
+        if (longBitmap == null) {
+            Toast.makeText(this, "Stitching failed.", Toast.LENGTH_SHORT).show();
+            return;
         }
 
-        if (finalBitmap != null) {
-            performOcr(finalBitmap);
-        } else {
-            Toast.makeText(this, "Error processing images", Toast.LENGTH_SHORT).show();
+        try {
+            // 2. Apply the Green Line (Top) and Red Line (Bottom) Crop
+            // limitRect.top = Y position of Green Line (Start)
+            // limitRect.bottom = Y position of Red Line (End) relative to the screen height
+            
+            // Logic:
+            // The content starts at 'limitRect.top' pixels from the top of the stitched image.
+            // The content ends at 'limitRect.bottom' pixels from the bottom of the stitched image?
+            // NO. The user placed the Red Line on the LAST screen.
+            // So we want to keep up to: TotalHeight - (ScreenHeight - RedLineY).
+            
+            int greenLineY = limitRect.top;
+            int redLineY = limitRect.bottom;
+            
+            int pixelsFromBottomToSkip = screenHeight - redLineY;
+            int finalHeight = longBitmap.getHeight() - greenLineY - pixelsFromBottomToSkip;
+            
+            // Safety check
+            if (finalHeight <= 0) finalHeight = 100;
+            if (greenLineY + finalHeight > longBitmap.getHeight()) finalHeight = longBitmap.getHeight() - greenLineY;
+
+            Bitmap finalCropped = Bitmap.createBitmap(longBitmap, 0, greenLineY, longBitmap.getWidth(), finalHeight);
+            
+            // Clean up long bitmap
+            // longBitmap.recycle(); // Optional, risky if OOM
+
+            performOcr(finalCropped);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            // Fallback: Just OCR the stitched image without cropping
+            performOcr(longBitmap);
         }
     }
 
@@ -339,24 +391,19 @@ public class FloatingTranslatorService extends Service {
         if (!extractedText.isEmpty()) {
             latestOcrText = extractedText;
             
-            // Check if we should copy to clipboard (Two-Line Feature)
             if (shouldCopyToClipboard) {
                 copyToClipboard(latestOcrText);
-                // Reset flag
                 shouldCopyToClipboard = false; 
             }
             
-            // Proceed to translation/popup
             translateText(latestOcrText);
         } else {
             Toast.makeText(FloatingTranslatorService.this, "No text found", Toast.LENGTH_SHORT).show();
         }
         recognizer.release();
         
-        // Clean up memory
-        for (Bitmap b : capturedBitmaps) {
-            if (b != null && !b.isRecycled() && b != bitmap) b.recycle();
-        }
+        // Clean up
+        capturedBitmaps.clear();
     }
 
     private void copyToClipboard(String text) {
@@ -404,6 +451,7 @@ public class FloatingTranslatorService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        sInstance = null;
         if (mediaProjection != null) mediaProjection.stop();
         if (floatingBubbleView != null) windowManager.removeView(floatingBubbleView);
         if (popupView != null) windowManager.removeView(popupView);
@@ -644,4 +692,3 @@ public class FloatingTranslatorService extends Service {
         targetSpinner.setOnItemSelectedListener(listener);
     }
 }
-
