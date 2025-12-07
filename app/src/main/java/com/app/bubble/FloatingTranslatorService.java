@@ -484,7 +484,12 @@ public class FloatingTranslatorService extends Service {
                     if (isSingleScreen) {
                         performOcrWithFilter(stitched, limitRect.top, limitRect.bottom);
                     } else {
-                        performOcrWithFilter(stitched, -1, -1);
+                        // FIX: Adjust coordinates for the scrolling case (Status Bar removed)
+                        int statusBarCut = 70; 
+                        // Shift the Red Line up by 70px to match the cropped image
+                        int adjustedBottom = Math.max(0, limitRect.bottom - statusBarCut);
+                        // Use 0 as start (top of stitched image) so filter activates
+                        performOcrWithFilter(stitched, 0, adjustedBottom);
                     }
                 }
             }
