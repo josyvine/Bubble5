@@ -5,9 +5,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- NEW: Permission to act as a Keyboard -->
+    <!-- Permission to act as a Keyboard -->
     <uses-permission android:name="android.permission.BIND_INPUT_METHOD" />
-    <!-- NEW: Permission to act as an Accessibility Service -->
+    <!-- Permission to act as an Accessibility Service -->
     <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
 
     <application
@@ -19,8 +19,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light">
 
+        <!-- FIX: Updated Metadata for ML Kit (New OCR Engine) -->
         <meta-data
-            android:name="com.google.android.gms.vision.DEPENDENCIES"
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="ocr" />
 
         <meta-data
@@ -50,7 +51,7 @@
             android:enabled="true"
             android:exported="false" />
 
-        <!-- NEW: Accessibility Service for Auto-Scrolling -->
+        <!-- Accessibility Service for Auto-Scrolling -->
         <service
             android:name=".GlobalScrollService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -63,7 +64,7 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- NEW: Input Method Service for the Keyboard Extension -->
+        <!-- Input Method Service for the Keyboard Extension -->
         <service
             android:name=".BubbleKeyboardService"
             android:label="Bubble Keyboard"
@@ -77,7 +78,7 @@
                 android:resource="@xml/method" />
         </service>
         
-        <!-- NEW: Service for the Two-Line Overlay Logic -->
+        <!-- Service for the Two-Line Overlay Logic -->
         <service
             android:name=".TwoLineOverlayService"
             android:enabled="true"
