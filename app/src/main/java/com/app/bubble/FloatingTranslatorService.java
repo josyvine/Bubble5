@@ -1,4 +1,3 @@
-
 package com.app.bubble;
 
 import android.app.Activity;
@@ -359,9 +358,11 @@ public class FloatingTranslatorService extends Service {
                             }
 
                             // --- BATCH PROCESSING (Fix for Unlimited Scroll) ---
-                            // If we have collected enough frames (e.g. 12), process them now.
-                            // This stops memory from filling up.
-                            if (isBurstMode && capturedBitmaps.size() >= 12) {
+                            // FIX APPLIED HERE:
+                            // Changed batch size from 12 to 3.
+                            // 12 frames causes OutOfMemory or Black Screen crash (Texture limit).
+                            // 3 frames allows unlimited scrolling safely.
+                            if (isBurstMode && capturedBitmaps.size() >= 3) {
                                 processIntermediateChunk();
                             }
 
@@ -466,11 +467,23 @@ public class FloatingTranslatorService extends Service {
                         int cropHeight = Math.min(singleScreenHeight, stitched.getHeight());
                         if (cropHeight <= 0) cropHeight = 50; // Safety
                         
-                        // IMPORTANT: For single screen, we just crop Green to Red relative to the image
-                        int cropY = Math.min(greenLineY, stitched.getHeight() - cropHeight);
+                        // FIX APPLIED HERE:
+                        // IMPORTANT: For single screen, trust the Green Line coordinate directly.
+                        // Removed Math.min which was shifting the crop area upwards and causing || || errors.
+                        int cropY = greenLineY; 
+
+                        // Simple safety check only for negative values or exceeding bitmap bounds
                         if (cropY < 0) cropY = 0;
-                        
-                        finalCropped = Bitmap.createBitmap(stitched, 0, cropY, stitched.getWidth(), cropHeight);
+                        if (cropY + cropHeight > stitched.getHeight()) {
+                            cropHeight = stitched.getHeight() - cropY;
+                        }
+
+                        // Ensure we have a valid height after checks
+                        if (cropHeight > 0) {
+                            finalCropped = Bitmap.createBitmap(stitched, 0, cropY, stitched.getWidth(), cropHeight);
+                        } else {
+                            finalCropped = stitched; // Fallback
+                        }
                         
                     } else {
                         // Logic for Long Image (Endless Scroll) -> Crop Bottom
