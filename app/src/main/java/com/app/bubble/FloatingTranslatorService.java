@@ -1,3 +1,4 @@
+
 package com.app.bubble;
 
 import android.app.Activity;
@@ -166,8 +167,9 @@ public class FloatingTranslatorService extends Service {
         super.onCreate();
         sInstance = this;
 
-        // Start Foreground Service to prevent app closing
+        // --- FIX: Start Foreground Service to prevent app closing/Permission Lost ---
         startMyForeground();
+        // --------------------------------------------------------------------------
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         mediaProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
@@ -184,7 +186,7 @@ public class FloatingTranslatorService extends Service {
         setupCloseTarget();
     }
 
-    // Creates the Notification
+    // --- NEW METHOD: Creates the Notification ---
     private void startMyForeground() {
         String CHANNEL_ID = "bubble_translator_channel";
 
@@ -197,6 +199,7 @@ public class FloatingTranslatorService extends Service {
             ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(channel);
         }
 
+        // Create an intent that opens the app when you click the notification
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
@@ -217,6 +220,7 @@ public class FloatingTranslatorService extends Service {
                     .build();
         }
 
+        // ID must be > 0
         startForeground(1337, notification);
     }
 
@@ -237,10 +241,12 @@ public class FloatingTranslatorService extends Service {
         closeRegionHeight = screenHeight / 5;
     }
 
+    // Helper to ask for permission again if it was lost
     private void requestPermissionRestart() {
         Toast.makeText(this, "Permission lost. Please allow again.", Toast.LENGTH_SHORT).show();
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // We can add an extra here to tell MainActivity to auto-launch the permission dialog
         intent.putExtra("AUTO_REQUEST_PERMISSION", true);
         startActivity(intent);
     }
@@ -262,13 +268,13 @@ public class FloatingTranslatorService extends Service {
         }
     }
 
-    // Called by TwoLineOverlayService to pause/stop recording
+    // Called by TwoLineOverlayService to pause/stop recording (but keep images in memory)
     public void stopBurstCapture() {
         isBurstMode = false;
         stopCapture(); 
     }
 
-    // Called for Single-Box selection
+    // Called for Single-Box selection (Original Feature)
     public void onCropFinished(Rect selectedRect) {
         if (cropSelectionView != null) {
             windowManager.removeView(cropSelectionView);
@@ -311,7 +317,7 @@ public class FloatingTranslatorService extends Service {
                         image = reader.acquireLatestImage();
                         if (image != null) {
 
-                            // Burst Mode Throttling
+                            // Throttling for Burst Mode
                             if (isBurstMode) {
                                 long currentTime = System.currentTimeMillis();
                                 if (currentTime - lastCaptureTime < CAPTURE_INTERVAL_MS) {
@@ -352,9 +358,9 @@ public class FloatingTranslatorService extends Service {
                                 capturedBitmaps.add(capturedFrame);
                             }
 
-                            // --- BATCH PROCESSING (Endless Scroll Logic) ---
-                            // If we have collected enough frames (e.g. 12 frames ~= 2 seconds),
-                            // process them immediately to save memory and avoid crashes.
+                            // --- BATCH PROCESSING (Fix for Unlimited Scroll) ---
+                            // If we have collected enough frames (e.g. 12), process them now.
+                            // This stops memory from filling up.
                             if (isBurstMode && capturedBitmaps.size() >= 12) {
                                 processIntermediateChunk();
                             }
@@ -387,11 +393,11 @@ public class FloatingTranslatorService extends Service {
         }
     }
 
-    // --- NEW: Processes a chunk of images in the background ---
+    // --- NEW: Processes a chunk of images in the background (Infinite Scroll) ---
     private void processIntermediateChunk() {
         final List<Bitmap> chunkToProcess = new ArrayList<>(capturedBitmaps);
         
-        // Clear main list but KEEP the last frame to ensure overlap for the next chunk
+        // Keep the last frame to ensure overlap for the next chunk
         Bitmap lastFrame = capturedBitmaps.get(capturedBitmaps.size() - 1);
         capturedBitmaps.clear();
         capturedBitmaps.add(lastFrame);
@@ -402,7 +408,6 @@ public class FloatingTranslatorService extends Service {
                 Bitmap stitched = ImageStitcher.stitchImages(chunkToProcess);
                 if (stitched != null) {
                     // Crop Top if it's the very first chunk (Green Line)
-                    // For middle chunks, we keep full height to capture everything scrolled
                     if (isFirstChunk && currentCropRect != null && currentCropRect.top > 0) {
                          int cropTop = Math.min(currentCropRect.top, stitched.getHeight());
                          int height = stitched.getHeight() - cropTop;
@@ -415,9 +420,9 @@ public class FloatingTranslatorService extends Service {
                     }
                     isFirstChunk = false;
                 }
-                // Cleanup chunk bitmaps
+                // Cleanup chunk bitmaps (Crucial for memory)
                 for (Bitmap b : chunkToProcess) {
-                    if (b != lastFrame) b.recycle(); // Don't recycle the one we kept
+                    if (b != lastFrame) b.recycle(); 
                 }
             }
         });
@@ -429,7 +434,7 @@ public class FloatingTranslatorService extends Service {
         }
     }
 
-    // --- FINAL Processing when User clicks STOP ---
+    // --- FINAL Processing when User clicks STOP/COPY ---
     private void processTwoLineResult(Rect limitRect) {
         // If we have any remaining frames, process them now
         final List<Bitmap> remainingFrames = new ArrayList<>(capturedBitmaps);
@@ -441,7 +446,6 @@ public class FloatingTranslatorService extends Service {
                 Bitmap stitched = ImageStitcher.stitchImages(remainingFrames);
                 
                 if (stitched == null && continuousOcrBuilder.length() == 0) {
-                    // Nothing captured at all
                     handler.post(() -> Toast.makeText(FloatingTranslatorService.this, "Capture failed.", Toast.LENGTH_SHORT).show());
                     return;
                 }
@@ -451,33 +455,37 @@ public class FloatingTranslatorService extends Service {
                     int redLineY = limitRect.bottom;
                     int singleScreenHeight = redLineY - greenLineY;
                     
-                    // --- FIX FOR SINGLE SENTENCE (The "|" Issue) ---
-                    // If height is small (Single Screen), crop exactly between Green and Red lines.
-                    // If height is large (Scrolled), crop Bottom using Red Line logic.
+                    // --- FIX FOR SINGLE SENTENCE / " | " ISSUE ---
+                    // If height is small (Single Screen capture), crop exactly between lines.
+                    // If height is large (Scrolled capture), use the scroll cropping logic.
                     
                     Bitmap finalCropped;
-                    if (stitched.getHeight() < screenHeight * 1.5) {
-                        // Short Image (Single Sentence) -> Exact Crop
-                        // If it was first chunk, we might have already cropped top. 
-                        // But for a single sentence flow, isFirstChunk is still true or we just stitch once.
-                        
-                        // We recalculate relative to the stitched image
+                    if (stitched.getHeight() < screenHeight * 1.2) {
+                        // Logic for Short Image (Single Sentence) -> Exact Crop
+                        // We clamp coordinate to avoid crashing if image is slightly smaller
                         int cropHeight = Math.min(singleScreenHeight, stitched.getHeight());
-                        if (cropHeight <= 0) cropHeight = 50;
+                        if (cropHeight <= 0) cropHeight = 50; // Safety
                         
-                        // Use GreenLineY as top, but clamp if image is smaller (shouldn't happen in single mode)
+                        // IMPORTANT: For single screen, we just crop Green to Red relative to the image
                         int cropY = Math.min(greenLineY, stitched.getHeight() - cropHeight);
                         if (cropY < 0) cropY = 0;
                         
                         finalCropped = Bitmap.createBitmap(stitched, 0, cropY, stitched.getWidth(), cropHeight);
                         
                     } else {
-                        // Long Image (Endless Scroll) -> Crop Bottom
-                        // We only care about the Red Line (Bottom limit) here
+                        // Logic for Long Image (Endless Scroll) -> Crop Bottom
+                        // We only remove the space below the Red Line
                         int cutFromBottom = screenHeight - redLineY;
                         int newHeight = stitched.getHeight() - cutFromBottom;
+                        
+                        // Also crop top if this was the ONLY chunk (user scrolled very little)
+                        int cutFromTop = 0;
+                        if (isFirstChunk) cutFromTop = greenLineY; // We never flushed previous chunks
+                        
+                        newHeight = newHeight - cutFromTop;
+                        
                         if (newHeight > 0) {
-                             finalCropped = Bitmap.createBitmap(stitched, 0, 0, stitched.getWidth(), newHeight);
+                             finalCropped = Bitmap.createBitmap(stitched, 0, cutFromTop, stitched.getWidth(), newHeight);
                         } else {
                              finalCropped = stitched;
                         }
