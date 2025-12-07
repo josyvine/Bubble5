@@ -1,3 +1,4 @@
+
 package com.app.bubble;
 
 import android.app.Activity;
@@ -337,8 +338,19 @@ public class FloatingTranslatorService extends Service {
 
                             Bitmap capturedFrame;
                             if (isBurstMode) {
-                                capturedFrame = fullBitmap; 
+                                // --- FIX: "4:22" Status Bar Issue ---
+                                // We MUST crop the top ~120px (Status Bar + Header) from every frame.
+                                // If we don't, the static clock/battery confuses the stitcher.
+                                int statusBarCut = 120; // Safe margin for status bar + action bar
+                                
+                                if (fullBitmap.getHeight() > statusBarCut) {
+                                    capturedFrame = Bitmap.createBitmap(fullBitmap, 0, statusBarCut, fullBitmap.getWidth(), fullBitmap.getHeight() - statusBarCut);
+                                    fullBitmap.recycle(); // Clean up the full one immediately
+                                } else {
+                                    capturedFrame = fullBitmap;
+                                }
                             } else {
+                                // Normal Single Shot Logic
                                 int left = Math.max(0, cropRect.left);
                                 int top = Math.max(0, cropRect.top);
                                 int width = Math.min(cropRect.width(), fullBitmap.getWidth() - left);
@@ -358,9 +370,6 @@ public class FloatingTranslatorService extends Service {
                             }
 
                             // --- BATCH PROCESSING (Fix for Unlimited Scroll) ---
-                            // FIX APPLIED HERE:
-                            // Changed batch size from 12 to 3.
-                            // 12 frames causes OutOfMemory or Black Screen crash (Texture limit).
                             // 3 frames allows unlimited scrolling safely.
                             if (isBurstMode && capturedBitmaps.size() >= 3) {
                                 processIntermediateChunk();
@@ -408,17 +417,8 @@ public class FloatingTranslatorService extends Service {
             public void run() {
                 Bitmap stitched = ImageStitcher.stitchImages(chunkToProcess);
                 if (stitched != null) {
-                    // Crop Top if it's the very first chunk (Green Line)
-                    if (isFirstChunk && currentCropRect != null && currentCropRect.top > 0) {
-                         int cropTop = Math.min(currentCropRect.top, stitched.getHeight());
-                         int height = stitched.getHeight() - cropTop;
-                         if (height > 0) {
-                             Bitmap cropped = Bitmap.createBitmap(stitched, 0, cropTop, stitched.getWidth(), height);
-                             performOcrSync(cropped);
-                         }
-                    } else {
-                        performOcrSync(stitched);
-                    }
+                    // For chunks, we don't need complex cropping anymore because we cropped the status bar at source.
+                    performOcrSync(stitched);
                     isFirstChunk = false;
                 }
                 // Cleanup chunk bitmaps (Crucial for memory)
@@ -454,7 +454,6 @@ public class FloatingTranslatorService extends Service {
                 if (stitched != null) {
                     int greenLineY = limitRect.top;
                     int redLineY = limitRect.bottom;
-                    int singleScreenHeight = redLineY - greenLineY;
                     
                     // --- FIX FOR SINGLE SENTENCE / " | " ISSUE ---
                     // If height is small (Single Screen capture), crop exactly between lines.
@@ -464,41 +463,37 @@ public class FloatingTranslatorService extends Service {
                     if (stitched.getHeight() < screenHeight * 1.2) {
                         // Logic for Short Image (Single Sentence) -> Exact Crop
                         // We clamp coordinate to avoid crashing if image is slightly smaller
+                        int singleScreenHeight = redLineY - greenLineY;
                         int cropHeight = Math.min(singleScreenHeight, stitched.getHeight());
                         if (cropHeight <= 0) cropHeight = 50; // Safety
                         
-                        // FIX APPLIED HERE:
-                        // IMPORTANT: For single screen, trust the Green Line coordinate directly.
-                        // Removed Math.min which was shifting the crop area upwards and causing || || errors.
-                        int cropY = greenLineY; 
+                        // FIX: Trust Green Line, but account for the Status Bar cut we did earlier?
+                        // Actually, if we cut status bar (120px) from source, the stitched image is shifted up by 120px.
+                        // So we need to subtract 120 from the GreenLineY coordinate to match the image.
+                        int statusBarCut = 120;
+                        int cropY = greenLineY - statusBarCut; 
 
-                        // Simple safety check only for negative values or exceeding bitmap bounds
+                        // Simple safety check 
                         if (cropY < 0) cropY = 0;
                         if (cropY + cropHeight > stitched.getHeight()) {
                             cropHeight = stitched.getHeight() - cropY;
                         }
 
-                        // Ensure we have a valid height after checks
                         if (cropHeight > 0) {
                             finalCropped = Bitmap.createBitmap(stitched, 0, cropY, stitched.getWidth(), cropHeight);
                         } else {
-                            finalCropped = stitched; // Fallback
+                            finalCropped = stitched; 
                         }
                         
                     } else {
-                        // Logic for Long Image (Endless Scroll) -> Crop Bottom
-                        // We only remove the space below the Red Line
+                        // Logic for Long Image (Endless Scroll)
+                        // The top is already cropped by our 120px cut in loop.
+                        // We just need to cut the bottom (Below Red Line).
                         int cutFromBottom = screenHeight - redLineY;
                         int newHeight = stitched.getHeight() - cutFromBottom;
                         
-                        // Also crop top if this was the ONLY chunk (user scrolled very little)
-                        int cutFromTop = 0;
-                        if (isFirstChunk) cutFromTop = greenLineY; // We never flushed previous chunks
-                        
-                        newHeight = newHeight - cutFromTop;
-                        
                         if (newHeight > 0) {
-                             finalCropped = Bitmap.createBitmap(stitched, 0, cutFromTop, stitched.getWidth(), newHeight);
+                             finalCropped = Bitmap.createBitmap(stitched, 0, 0, stitched.getWidth(), newHeight);
                         } else {
                              finalCropped = stitched;
                         }
