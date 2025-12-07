@@ -1,4 +1,3 @@
-
 package com.app.bubble;
 
 import android.app.Activity;
@@ -45,7 +44,7 @@ import com.google.android.gms.ads.AdRequest;
 import com.google.android.gms.ads.AdView;
 import com.google.android.gms.ads.MobileAds;
 
-// FIX: New ML Kit Imports
+// ML Kit Imports
 import com.google.android.gms.tasks.Tasks;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
@@ -173,7 +172,7 @@ public class FloatingTranslatorService extends Service {
         super.onCreate();
         sInstance = this;
 
-        // Start Foreground Service to prevent app closing/Permission Lost
+        // Start Foreground Service
         startMyForeground();
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
@@ -337,7 +336,7 @@ public class FloatingTranslatorService extends Service {
 
                             Bitmap capturedFrame;
                             if (isBurstMode) {
-                                // Raw Capture (No Crop). We handle logic later to prevent "No Text Found"
+                                // Raw Capture (No Crop)
                                 capturedFrame = fullBitmap;
                             } else {
                                 // Normal Single Shot Logic (Crop Immediately)
@@ -392,7 +391,7 @@ public class FloatingTranslatorService extends Service {
         }
     }
 
-    // --- Processes a chunk of images in the background (Infinite Scroll) ---
+    // --- Processes a chunk of images in the background ---
     private void processIntermediateChunk() {
         final List<Bitmap> chunkToProcess = new ArrayList<>(capturedBitmaps);
         
@@ -404,7 +403,7 @@ public class FloatingTranslatorService extends Service {
         executor.execute(new Runnable() {
             @Override
             public void run() {
-                // Cut Status Bar (70px) to prevent repeats during scroll
+                // Cut Status Bar (70px) to prevent repeats
                 List<Bitmap> bitmapsForStitching = new ArrayList<>();
                 int statusBarCut = 70; 
 
@@ -425,7 +424,7 @@ public class FloatingTranslatorService extends Service {
                 }
 
                 if (stitched != null) {
-                    // Pass to ML Kit (No Filtering for intermediate chunks)
+                    // Pass to ML Kit
                     performOcrWithFilter(stitched, -1, -1);
                     isFirstChunk = false;
                 }
@@ -452,13 +451,11 @@ public class FloatingTranslatorService extends Service {
         executor.execute(new Runnable() {
             @Override
             public void run() {
-                // Determine Mode: Single Screen or End of Scroll?
                 boolean isSingleScreen = (remainingFrames.size() <= 2 && isFirstChunk);
-                
                 Bitmap stitched;
 
                 if (isSingleScreen) {
-                    // Single Sentence Mode: Use RAW images. No status bar cuts.
+                    // Single Sentence Mode: No cuts.
                     stitched = ImageStitcher.stitchImages(remainingFrames);
                 } else {
                     // Scrolling Mode: Cut status bar.
@@ -485,37 +482,18 @@ public class FloatingTranslatorService extends Service {
                 }
 
                 if (stitched != null) {
-                    // FIX: Use Coordinate Filtering instead of Bitmap Cropping for Single Screen
+                    // Use Center-Point Filtering
                     if (isSingleScreen) {
-                        // Pass the FULL stitched image + the Lines to ML Kit.
-                        // ML Kit will only read text inside the lines.
                         performOcrWithFilter(stitched, limitRect.top, limitRect.bottom);
                     } else {
-                        // For Multi-Screen, we assume the user wants everything scrolled.
-                        // We do not filter by Green/Red lines because stitching shifts coordinates.
                         performOcrWithFilter(stitched, -1, -1);
                     }
                 }
-
-                // Finalize: Send text to translation
-                String finalText = continuousOcrBuilder.toString().trim();
-                handler.post(() -> {
-                    if (!finalText.isEmpty()) {
-                        latestOcrText = finalText;
-                        if (shouldCopyToClipboard) {
-                            copyToClipboard(latestOcrText);
-                            shouldCopyToClipboard = false;
-                        }
-                        translateText(latestOcrText);
-                    } else {
-                        Toast.makeText(FloatingTranslatorService.this, "No text found", Toast.LENGTH_SHORT).show();
-                    }
-                });
             }
         });
     }
 
-    // FIX: New Method using ML Kit with Coordinate Filtering
+    // FIX: Method using ML Kit with Debug Reporting
     private void performOcrWithFilter(Bitmap bitmap, final int minY, final int maxY) {
         if (bitmap == null) return;
         
@@ -523,22 +501,22 @@ public class FloatingTranslatorService extends Service {
         TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
 
         try {
-            // Force Synchronous execution using Tasks.await to keep text in order
+            // Force Synchronous execution
             Text visionText = Tasks.await(recognizer.process(image));
             
             StringBuilder sb = new StringBuilder();
+            StringBuilder debugRawLog = new StringBuilder(); // For Debug Screen
             
-            // Loop through all text blocks
             for (Text.TextBlock block : visionText.getTextBlocks()) {
                 for (Text.Line line : block.getLines()) {
                     Rect box = line.getBoundingBox();
                     if (box != null) {
-                        // FILTER LOGIC:
-                        // If minY == -1, it means "Read Everything" (Scroll Mode / Normal Bubble)
-                        // If minY > 0, check if the CENTER of the text is between lines.
-                        // FIX: Use centerY() instead of top/bottom bounds. This prevents strict filtering
-                        // from deleting text that touches the line, fixing the "||" issue.
                         int centerY = box.centerY();
+                        
+                        // Log for Debug
+                        debugRawLog.append("Y=").append(centerY).append(": ").append(line.getText()).append("\n");
+
+                        // FILTER LOGIC: Check Center Point
                         boolean isInside = (minY == -1) || (centerY >= minY && centerY <= maxY);
                         
                         if (isInside) {
@@ -548,88 +526,63 @@ public class FloatingTranslatorService extends Service {
                 }
                 sb.append("\n");
             }
-
-            // Append result to the global builder
+            
+            String chunkResult = sb.toString().replace("\n", " ");
+            
+            // Append result to global
             synchronized (continuousOcrBuilder) {
-                continuousOcrBuilder.append(sb.toString().replace("\n", " ")).append(" ");
+                continuousOcrBuilder.append(chunkResult).append(" ");
             }
 
-        } catch (ExecutionException | InterruptedException e) {
+            // === DEBUG: Launch Debug Activity if this is the final processing ===
+            // Only launch if we have coordinate data (Single Screen) or it's the end of a scroll
+            if (minY != -1 || !isFirstChunk) {
+                
+                // Prepare Data for Debug Screen
+                DebugActivity.sLastBitmap = bitmap;
+                DebugActivity.sLastRect = new Rect(0, minY, bitmap.getWidth(), maxY);
+                DebugActivity.sRawText = debugRawLog.toString();
+                DebugActivity.sFilteredText = continuousOcrBuilder.toString().trim();
+                DebugActivity.sErrorLog = "Captured successfully. Check lines.";
+
+                // Launch Screen
+                Intent debugIntent = new Intent(this, DebugActivity.class);
+                debugIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(debugIntent);
+                
+                // We do NOT show the normal popup in Debug Mode
+                return;
+            }
+
+        } catch (Exception e) {
             e.printStackTrace();
+            // Launch Debug Screen on Error
+            DebugActivity.sErrorLog = "CRASH: " + e.getMessage();
+            Intent debugIntent = new Intent(this, DebugActivity.class);
+            debugIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(debugIntent);
         }
     }
 
-    // FIX: Updated Normal Bubble OCR to use ML Kit (No Filtering)
+    // Standard Normal Bubble OCR
     private void performOcr(Bitmap bitmap) {
-        // Just call the filtered version with "-1" to indicate "Read Whole Image"
-        // Since the image is already cropped by the Normal Bubble logic, we read it all.
-        
-        // Note: performOcr is called on Main Thread usually, but we need background for Tasks.await
         executor.execute(() -> {
+            // Use -1 to read everything (Normal Bubble is already cropped)
             performOcrWithFilter(bitmap, -1, -1);
-            
-            // Trigger UI update
-            String extractedText = continuousOcrBuilder.toString().trim();
-            
-            handler.post(() -> {
-                 if (!extractedText.isEmpty()) {
-                    latestOcrText = extractedText;
-                    if (shouldCopyToClipboard) {
-                        copyToClipboard(latestOcrText);
-                        shouldCopyToClipboard = false; 
-                    }
-                    translateText(latestOcrText);
-                    // Clear for next time
-                    continuousOcrBuilder.setLength(0);
-                } else {
-                    Toast.makeText(FloatingTranslatorService.this, "No text found", Toast.LENGTH_SHORT).show();
-                }
-            });
-            
-            capturedBitmaps.clear();
         });
     }
 
+    // ... (Existing Clipboard/Translate methods kept for structure, but Debug Mode skips them) ...
     private void copyToClipboard(String text) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
             ClipData clip = ClipData.newPlainText("Bubble Copy", text);
             clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "Text copied to clipboard", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void translateText(final String text) {
-        if (text == null || text.isEmpty()) return;
-
-        final String sourceLangCode = languageCodes[Arrays.asList(languages).indexOf(currentSourceLang)];
-        final String targetLangCode = languageCodes[Arrays.asList(languages).indexOf(currentTargetLang)];
-
-        executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    final String result = TranslateApi.translate(sourceLangCode, targetLangCode, text);
-                    handler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (result != null && !result.isEmpty()) {
-                                    latestTranslation = result;
-                                    isTranslationReady = true;
-
-                                    if (popupView != null && popupView.isShown()) {
-                                        TextView translatedTextView = popupView.findViewById(R.id.popup_translated_text);
-                                        translatedTextView.setText(latestTranslation);
-                                        Toast.makeText(FloatingTranslatorService.this, "Translation updated", Toast.LENGTH_SHORT).show();
-                                    } else {
-                                        showResultPopup();
-                                    }
-                                } else {
-                                    Toast.makeText(FloatingTranslatorService.this, "Translation failed", Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        });
-                }
-            });
+       // Debug Mode skips this
     }
 
     @Override
@@ -664,12 +617,10 @@ public class FloatingTranslatorService extends Service {
                             closeTargetView.setVisibility(View.VISIBLE);
                             isBubbleOverCloseTarget = false;
                             return true;
-
                         case MotionEvent.ACTION_MOVE:
                             bubbleParams.x = initialX + (int) (event.getRawX() - initialTouchX);
                             bubbleParams.y = initialY + (int) (event.getRawY() - initialTouchY);
                             windowManager.updateViewLayout(floatingBubbleView, bubbleParams);
-
                             if (bubbleParams.y > (screenHeight - closeRegionHeight)) {
                                 isBubbleOverCloseTarget = true;
                                 closeTargetView.setScaleX(1.3f); closeTargetView.setScaleY(1.3f);
@@ -678,14 +629,12 @@ public class FloatingTranslatorService extends Service {
                                 closeTargetView.setScaleX(1.0f); closeTargetView.setScaleY(1.0f);
                             }
                             return true;
-
                         case MotionEvent.ACTION_UP:
                             closeTargetView.setVisibility(View.GONE);
                             if (isBubbleOverCloseTarget) {
                                 stopSelf();
                                 return true;
                             }
-
                             if (System.currentTimeMillis() - lastClickTime < 200) {
                                 showCropSelectionTool();
                             }
@@ -706,25 +655,7 @@ public class FloatingTranslatorService extends Service {
     }
 
     private void showResultPopup() {
-        if (popupView != null) return;
-        floatingBubbleView.setVisibility(View.GONE);
-
-        popupView = LayoutInflater.from(this).inflate(R.layout.layout_result_popup, null);
-        int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
-        popupParams = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT, type, WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT);
-        popupParams.gravity = Gravity.CENTER;
-
-        TextView translatedTextView = popupView.findViewById(R.id.popup_translated_text);
-        translatedTextView.setText(latestTranslation);
-
-        setupPopupListeners();
-        setupLanguageSpinners();
-
-        AdView adView = popupView.findViewById(R.id.adView);
-        AdRequest adRequest = new AdRequest.Builder().build();
-        adView.loadAd(adRequest);
-
-        windowManager.addView(popupView, popupParams);
+        // Not used in Debug Mode
     }
 
     private void hideResultPopup() {
@@ -738,142 +669,6 @@ public class FloatingTranslatorService extends Service {
         }
     }
 
-    private void setupPopupListeners() {
-        popupView.findViewById(R.id.popup_back_arrow).setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    hideResultPopup();
-                }
-            });
-
-        popupView.findViewById(R.id.popup_help).setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Intent intent = new Intent(FloatingTranslatorService.this, HelpActivity.class);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(intent);
-                    hideResultPopup();
-                }
-            });
-
-        final ImageView menuIcon = popupView.findViewById(R.id.popup_menu);
-        menuIcon.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    PopupMenu popupMenu = new PopupMenu(getApplicationContext(), menuIcon);
-                    popupMenu.getMenuInflater().inflate(R.menu.popup_menu, popupMenu.getMenu());
-                    popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
-                            @Override
-                            public boolean onMenuItemClick(MenuItem item) {
-                                if (item.getItemId() == R.id.action_settings) {
-                                    Intent intent = new Intent(FloatingTranslatorService.this, SettingsActivity.class);
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                    startActivity(intent);
-                                    hideResultPopup();
-                                }
-                                return true;
-                            }
-                        });
-                    popupMenu.show();
-                }
-            });
-
-        popupView.findViewById(R.id.popup_copy_icon).setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    ClipData clip = ClipData.newPlainText("translation", latestTranslation);
-                    if (clipboard != null) {
-                        clipboard.setPrimaryClip(clip);
-                        Toast.makeText(FloatingTranslatorService.this, "Copied to clipboard", Toast.LENGTH_SHORT).show();
-                    }
-                }
-            });
-
-        popupView.findViewById(R.id.popup_share_icon).setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                    shareIntent.setType("text/plain");
-                    shareIntent.putExtra(Intent.EXTRA_TEXT, latestTranslation);
-                    shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    Intent chooser = Intent.createChooser(shareIntent, "Share translation via");
-                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(chooser);
-                    hideResultPopup();
-                }
-            });
-
-        popupView.findViewById(R.id.popup_refine_button).setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    // FIX: Ensure SharedPreferences is found (import is present)
-                    SharedPreferences prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE);
-                    final String apiKey = prefs.getString(SettingsActivity.KEY_API_KEY, "");
-
-                    if (apiKey == null || apiKey.trim().isEmpty()) {
-                        Toast.makeText(FloatingTranslatorService.this, "Please add Gemini API key in Settings", Toast.LENGTH_LONG).show();
-                        return;
-                    }
-
-                    Toast.makeText(FloatingTranslatorService.this, "Refining with AI...", Toast.LENGTH_SHORT).show();
-
-                    executor.execute(new Runnable() {
-                            @Override
-                            public void run() {
-                                final String refinedResult = GeminiApi.refine(latestTranslation, currentTargetLang, apiKey);
-                                handler.post(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            if (refinedResult != null && !refinedResult.isEmpty()) {
-                                                latestTranslation = refinedResult;
-                                                if (popupView != null) {
-                                                    TextView translatedTextView = popupView.findViewById(R.id.popup_translated_text);
-                                                    translatedTextView.setText(latestTranslation);
-                                                }
-                                                Toast.makeText(FloatingTranslatorService.this, "Refinement complete", Toast.LENGTH_SHORT).show();
-                                            } else {
-                                                Toast.makeText(FloatingTranslatorService.this, "Refinement failed. Check API key or connection.", Toast.LENGTH_LONG).show();
-                                            }
-                                        }
-                                    });
-                            }
-                        });
-                }
-            });
-    }
-
-    private void setupLanguageSpinners() {
-        sourceSpinner = popupView.findViewById(R.id.popup_source_language_spinner);
-        targetSpinner = popupView.findViewById(R.id.popup_target_language_spinner);
-
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, languages);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-
-        sourceSpinner.setAdapter(adapter);
-        targetSpinner.setAdapter(adapter);
-
-        sourceSpinner.setSelection(Arrays.asList(languages).indexOf(currentSourceLang));
-        targetSpinner.setSelection(Arrays.asList(languages).indexOf(currentTargetLang));
-
-        AdapterView.OnItemSelectedListener listener = new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String selectedSource = (String) sourceSpinner.getSelectedItem();
-                String selectedTarget = (String) targetSpinner.getSelectedItem();
-
-                if (!currentSourceLang.equals(selectedSource) || !currentTargetLang.equals(selectedTarget)) {
-                    currentSourceLang = selectedSource;
-                    currentTargetLang = selectedTarget;
-                    Toast.makeText(FloatingTranslatorService.this, "Translating to " + currentTargetLang, Toast.LENGTH_SHORT).show();
-                    translateText(latestOcrText);
-                }
-            }
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
-        };
-
-        sourceSpinner.setOnItemSelectedListener(listener);
-        targetSpinner.setOnItemSelectedListener(listener);
-    }
+    private void setupPopupListeners() { }
+    private void setupLanguageSpinners() { }
 }
