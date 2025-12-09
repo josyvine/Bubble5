@@ -78,11 +78,9 @@ public class EmojiUtils {
         
         if (recyclerView == null) return;
 
-        // Setup Layout Manager: 4 Rows, Horizontal Scrolling
-        // spanCount = 4 rows
+        // Setup Layout Manager: 7 Rows (FIX: Increased from 4 to 7 for denser grid)
         // orientation = HORIZONTAL
-        // reverseLayout = false
-        GridLayoutManager layoutManager = new GridLayoutManager(context, 4, GridLayoutManager.HORIZONTAL, false);
+        GridLayoutManager layoutManager = new GridLayoutManager(context, 7, GridLayoutManager.HORIZONTAL, false);
         recyclerView.setLayoutManager(layoutManager);
 
         // Set Adapter
@@ -117,8 +115,13 @@ public class EmojiUtils {
         public EmojiViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             // Programmatically create the TextView for each Emoji to avoid extra XML inflation overhead
             TextView tv = new TextView(parent.getContext());
-            tv.setLayoutParams(new ViewGroup.LayoutParams(140, 140)); // Fixed square size for easy tapping
-            tv.setTextSize(32); // Large emoji size
+            
+            // FIX: Reduced size from 140x140 to 100x100 for tighter packing
+            tv.setLayoutParams(new ViewGroup.LayoutParams(100, 100)); 
+            
+            // FIX: Reduced Text Size from 32 to 22 for modern look
+            tv.setTextSize(22); 
+            
             tv.setGravity(Gravity.CENTER);
             tv.setTextColor(Color.BLACK);
             return new EmojiViewHolder(tv);
