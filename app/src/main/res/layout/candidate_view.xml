@@ -1,26 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
-<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="45dp"
+    android:orientation="horizontal"
     android:background="#F0F0F0"
-    android:fillViewport="true"
-    android:scrollbars="none">
+    android:gravity="center_vertical">
 
-    <!-- Container for the suggestion words -->
-    <LinearLayout
-        android:id="@+id/candidate_container"
-        android:layout_width="wrap_content"
+    <!-- CLIPBOARD BUTTON (Fixed on Left) -->
+    <!-- This handles Issue #6: Keyboard needs a clipboard icon -->
+    <ImageButton
+        android:id="@+id/btn_clipboard"
+        android:layout_width="45dp"
         android:layout_height="match_parent"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="5dp"
-        android:paddingEnd="5dp">
+        android:src="@android:drawable/ic_menu_paste_holo_light"
+        android:background="?android:attr/selectableItemBackground"
+        android:scaleType="centerInside"
+        android:padding="10dp"
+        android:contentDescription="Clipboard History" />
 
-        <!-- 
-           TextViews for suggestions (e.g., "The", "And") 
-           will be added here dynamically by BubbleKeyboardService.java 
-        -->
+    <!-- Vertical Separator Line -->
+    <View
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="#CCCCCC" />
 
-    </LinearLayout>
+    <!-- SCROLLABLE SUGGESTIONS AREA -->
+    <!-- This contains the predictions (Issue #2) -->
+    <HorizontalScrollView
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none"
+        android:fadingEdge="horizontal">
 
-</HorizontalScrollView>
+        <LinearLayout
+            android:id="@+id/candidate_container"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="5dp"
+            android:paddingEnd="5dp">
+
+            <!-- 
+               TextViews for suggestions (e.g., "The", "And") 
+               will be added here dynamically by BubbleKeyboardService.java 
+            -->
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+</LinearLayout>
