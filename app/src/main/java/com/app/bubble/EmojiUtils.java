@@ -11,35 +11,37 @@ import android.widget.TextView;
 
 public class EmojiUtils {
 
-    // A curated list of popular modern Unicode Emojis
+    // A clean list of popular modern Unicode Emojis (No text labels)
     public static final String[] EMOJIS = {
-        // Smileys & People
+        // Smileys & Emotions
         "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰",
         "😘", "😗", "😙", "😚", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🤩", "🥳", "😏",
-        "😒", "😞", "😔", "wworried", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠",
-        "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "YW", "😨", "😰", "😥", "😓", "🤗", "🤔", "🤭", "🤫",
-        "🤥", "😶", "😐", "😑", "😬", "🙄", "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵",
-        "🤐", "🥴", "🤢", "🤮", "sneezing", "😷", "xk", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "hiding", "👻",
+        "😒", "😞", "😔", "😟", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠",
+        "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🤭", "🤫", "🤥",
+        "😶", "😐", "😑", "😬", "🙄", "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵", "🤐",
+        "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "👹", "👺", "🤡", "💩", "👻",
         "💀", "☠️", "👽", "👾", "🤖", "🎃", "😺", "😸", "😹", "😻", "😼", "😽", "🙀", "😿", "😾",
-        "👋", "🤚", "qm", "✋", "🖖", "👌", "🤏", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕",
+
+        // Hands & Body
+        "👋", "🤚", "🖐", "✋", "🖖", "👌", "🤏", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕",
         "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅",
-        "🤳", "💪", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🦷", "bone", "👀", "👁", "👅", "👄", "💋", "🩸",
+        "🤳", "💪", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🦷", "🦴", "👀", "👁", "👅", "👄", "💋", "🩸",
 
         // Animals & Nature
-        "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "cow", "🐷", "🐽", "🐸", "🐵",
-        "🙈", "🙉", "🙊", "🐒", "🐔", "🐧", "🐦", "🐤", "🐣", "🐥", "duck", "eagle", "owl", "bat", "wolf",
-        "boar", "horse", "unicorn", "bee", "bug", "butterfly", "snail", "beetle", "ant", "mosquito", "cricket",
-        "spider", "web", "turtle", "snake", "lizard", "t-rex", "octopus", "squid", "shrimp", "lobster", "crab",
-        "fish", "dolphin", "whale", "shark", "crocodile", "tiger", "leopard", "zebra", "gorilla", "orangutan",
-        "elephant", "hippo", "rhino", "camel", "giraffe", "kangaroo", "buffalo", "bull", "cow2", "pig", "ram",
-        "sheep", "llama", "goat", "deer", "dog2", "poodle", "cat2", "rooster", "turkey", "peacock", "parrot",
-        "swan", "flamingo", "rabbit", "raccoon", "skunk", "badger", "otter", "sloth", "mouse", "rat", "chipmunk",
-        "hedgehog", "cactus", "tree", "pine", "deciduous", "palm", "seedling", "herb", "shamrock", "clover",
-        "bamboo", "tanabata", "leaf", "fallen", "maple", "mushroom", "shell", "rose", "wilted", "hibiscus",
-        "cherry", "blossom", "flower", "sunflower", "daisy", "tulip", "seed", "trunk", "sun", "moon", "star",
-        "fire", "water", "cloud", "rain", "lightning", "snow", "rainbow", "umbrella", "zap", "ocean",
+        "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐽", "🐸", "🐵",
+        "🙈", "🙉", "🙊", "🐒", "🐔", "🐧", "🐦", "🐤", "🐣", "🐥", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗",
+        "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞", "🐜", "🦟", "🦗", "🕷", "🕸", "🐢", "🐍", "🦎", "🦖",
+        "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡", "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆",
+        "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫", "🦒", "🦘", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏",
+        "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🦮", "🐕‍🦺", "🐈", "🐓", "🦃", "🦚", "🦜", "🦢", "🦩", "🕊",
+        "🐇", "🦝", "🦨", "🦡", "🦦", "🦥", "🐁", "🐀", "🐿", "🦔", "🌵", "🌲", "🌳", "🌴", "🌱", "🌿",
+        "☘️", "🍀", "🎍", "🎋", "🍃", "🍂", "🍁", "🍄", "🐚", "🌾", "💐", "🌷", "🌹", "🥀", "🌺", "🌸",
+        "🌼", "🌻", "🌞", "🌝", "🌛", "🌜", "🌚", "🌕", "🌖", "🌗", "🌘", "🌑", "🌒", "🌓", "🌔", "🌙",
+        "🌎", "🌍", "🌏", "🪐", "💫", "⭐️", "🌟", "✨", "⚡️", "☄️", "💥", "🔥", "🌪", "🌈", "☀️", "🌤",
+        "⛅️", "🌥", "☁️", "🌦", "🌧", "⛈", "🌩", "🌨", "❄️", "☃️", "⛄️", "🌬", "💨", "💧", "💦", "☔️",
+        "☂️", "🌊",
 
-        // Objects & Hearts
+        // Objects & Symbols
         "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕", "💞", "💓", "💗", "💖",
         "💘", "💝", "💯", "💢", "💥", "💫", "💦", "💨", "🕳", "💣", "💬", "👁️‍🗨️", "🗨", "🗯", "💭", "💤",
         "💡", "🔦", "🕯", "🪔", "📔", "📕", "📖", "📗", "📘", "📙", "📚", "📓", "📒", "📃", "📜", "📄",
@@ -47,10 +49,9 @@ public class EmojiUtils {
         "📨", "📩", "📤", "📥", "📦", "📫", "📪", "📬", "📭", "📮", "🗳", "✏️", "✒️", "🖋", "🖊", "🖌",
         "🖍", "📝", "💼", "📁", "📂", "🗂", "📅", "📆", "🗒", "🗓", "📇", "📈", "📉", "📊", "📋", "📌",
         "📍", "📎", "🖇", "📏", "📐", "✂️", "🗃", "🗄", "🗑", "🔒", "🔓", "🔏", "🔐", "🔑", "🗝", "🔨",
-        "🪓", "⛏", "⚒", "🛠", "dagger", "⚔️", "gun", "boomerang", "bow", "shield", "wrench", "nut", "gear",
-        "clamp", "balance", "link", "chains", "hook", "toolbox", "magnet", "ladder", "⚗️", "🧪", "🧫", "🧬",
-        "🔬", "🔭", "📡", "syringe", "drop", "pill", "bandaid", "steth", "door", "chair", "toilet", "shower",
-        "bath", "razor", "lotion", "pin", "broom", "basket", "roll", "soap", "sponge", "extinguisher", "cart"
+        "🪓", "⛏", "⚒", "🛠", "🗡", "⚔️", "🔫", "🪃", "🏹", "🛡", "🔧", "🔩", "⚙️", "🗜", "⚖️", "🔗",
+        "⛓", "🪝", "🧰", "🧲", "🪜", "⚗️", "🧪", "🧫", "🧬", "🔬", "🔭", "📡", "💉", "🩸", "💊", "🩹",
+        "🩺", "🚪", "🪑", "🚽", "🚿", "🛁", "🪒", "🧴", "🧷", "🧹", "🧺", "🧻", "🧼", "🧽", "🧯", "🛒"
     };
 
     /**
@@ -70,20 +71,20 @@ public class EmojiUtils {
     public static void setupEmojiGrid(final Context context, View rootView, final EmojiListener listener) {
         GridView grid = rootView.findViewById(R.id.emoji_grid);
         
-        // Basic Buttons in the layout (logic can be extended for tabs)
+        // Setup Category Tabs (Simple scroll to position logic could be added here later)
+        // For now, these buttons are placeholders or can just reset the view.
         Button btnSmileys = rootView.findViewById(R.id.tab_smileys);
         Button btnAnimals = rootView.findViewById(R.id.tab_animals);
-        // Note: Real category filtering would require separate lists. 
-        // For this version, we show the mega-list.
+        // Add listeners if needed for tabs
         
         // Create the Adapter
         // We use a custom getView logic inside a standard ArrayAdapter to ensure size/centering
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(context, android.R.layout.simple_list_item_1, EMOJIS) {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
-                // Use the standard text view but customize it slightly
+                // Use the standard text view but customize it slightly for grid display
                 TextView tv = (TextView) super.getView(position, convertView, parent);
-                tv.setTextSize(28); // Make emojis large
+                tv.setTextSize(28); // Make emojis large and visible
                 tv.setGravity(android.view.Gravity.CENTER);
                 tv.setTextColor(Color.BLACK); // Ensure visibility
                 tv.setBackgroundColor(Color.TRANSPARENT);
@@ -97,8 +98,7 @@ public class EmojiUtils {
         // Handle Click
         grid.setOnItemClickListener((parent, view, position, id) -> {
             String selectedEmoji = EMOJIS[position];
-            // Only send if it's a valid string (filtering out placeholders if any)
-            if (selectedEmoji != null && !selectedEmoji.equals("xk")) { 
+            if (selectedEmoji != null) { 
                 listener.onEmojiClick(selectedEmoji);
             }
         });
