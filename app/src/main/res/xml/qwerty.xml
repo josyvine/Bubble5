@@ -34,7 +34,7 @@
 
     <!-- ROW 3 -->
     <Row>
-        <!-- Shift Key (Icon) -->
+        <!-- Shift (Icon) -->
         <Key android:codes="-1" 
              android:keyIcon="@drawable/ic_key_shift" 
              android:keyWidth="15%p" 
@@ -50,7 +50,7 @@
         <Key android:codes="110" android:keyLabel="n"/>
         <Key android:codes="109" android:keyLabel="m"/>
         
-        <!-- Backspace Key (Icon) -->
+        <!-- Backspace (Icon) -->
         <Key android:codes="-5" 
              android:keyIcon="@drawable/ic_key_backspace" 
              android:keyWidth="15%p" 
@@ -58,33 +58,44 @@
              android:keyEdgeFlags="right"/>
     </Row>
 
-    <!-- ROW 4 -->
+    <!-- ROW 4: The Complex Row -->
     <Row>
-        <!-- FIX IS HERE: Escaped the ? with a backslash -->
+        <!-- Symbols (?123) -->
         <Key android:codes="-2" 
              android:keyLabel="\?123" 
-             android:keyWidth="15%p" 
+             android:keyWidth="12%p" 
              android:keyEdgeFlags="left"/>
         
-        <!-- Emoji Key (Icon) -->
+        <!-- Emoji -->
         <Key android:codes="-100" 
              android:keyIcon="@drawable/ic_key_emoji" 
              android:keyWidth="10%p"/>
         
-        <Key android:codes="44" android:keyLabel="," android:keyWidth="10%p"/>
+        <!-- Comma -->
+        <Key android:codes="44" 
+             android:keyLabel="," 
+             android:keyWidth="8%p"/>
         
-        <!-- Space Key (Icon) -->
+        <!-- Space -->
         <Key android:codes="32" 
              android:keyIcon="@drawable/ic_key_space" 
              android:keyWidth="35%p" 
              android:isRepeatable="true"/>
         
-        <Key android:codes="46" android:keyLabel="." android:keyWidth="10%p"/>
+        <!-- Period -->
+        <Key android:codes="46" 
+             android:keyLabel="." 
+             android:keyWidth="8%p"/>
+             
+        <!-- COPY BUTTON (RESTORED - Essential for Copy Tool) -->
+        <Key android:codes="-10" 
+             android:keyLabel="COPY" 
+             android:keyWidth="15%p"/>
         
-        <!-- Enter Key (Icon) -->
+        <!-- Enter -->
         <Key android:codes="-4" 
              android:keyIcon="@drawable/ic_key_enter" 
-             android:keyWidth="20%p" 
+             android:keyWidth="12%p" 
              android:keyEdgeFlags="right"/>
     </Row>
 </Keyboard>
