@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * Manages clipboard history for the custom keyboard.
  * Stores the last 10 copied items.
- * UPDATED: Supports Delete and Undo operations.
+ * UPDATED: Prevents deleted items from reappearing (Ghost Item Fix).
  */
 public class ClipboardManagerHelper {
 
@@ -23,10 +23,13 @@ public class ClipboardManagerHelper {
     private List<String> clipHistory;
     private Context mContext; 
     
+    // FIX: Variable to ignore the item we just deleted so it doesn't auto-add back
+    private String lastDeletedText = null;
+    
     private static final String PREFS_NAME = "BubbleClipboardPrefs";
     private static final String KEY_HISTORY = "ClipHistoryString";
     private static final int MAX_HISTORY_SIZE = 10;
-    private static final String DELIMITER = "#####"; // Simple delimiter for saving list
+    private static final String DELIMITER = "#####"; 
 
     private ClipboardManagerHelper(Context context) {
         this.mContext = context;
@@ -53,7 +56,14 @@ public class ClipboardManagerHelper {
             if (systemClipboard.getPrimaryClip().getItemCount() > 0) {
                 ClipData.Item item = systemClipboard.getPrimaryClip().getItemAt(0);
                 if (item != null && item.getText() != null) {
-                    addClip(item.getText().toString());
+                    String currentText = item.getText().toString();
+                    
+                    // FIX: If this text matches what we just deleted, IGNORE IT.
+                    if (currentText.equals(lastDeletedText)) {
+                        return;
+                    }
+                    
+                    addClip(currentText);
                 }
             }
         }
@@ -62,12 +72,13 @@ public class ClipboardManagerHelper {
     /**
      * Adds a text to the history (Top of the list).
      * Removes duplicates and keeps size limited.
-     * Feeds the words to PredictionEngine to learn them.
      */
     public void addClip(String text) {
         if (text == null || text.trim().isEmpty()) return;
 
-        // 1. Manage History List
+        // Reset the ignored item since a new copy action happened
+        lastDeletedText = null;
+
         if (clipHistory.contains(text)) {
             clipHistory.remove(text);
         }
@@ -79,7 +90,7 @@ public class ClipboardManagerHelper {
 
         saveHistory();
 
-        // 2. Learn Vocabulary from Clipboard
+        // Learn Vocabulary from Clipboard
         String[] words = text.split("\\s+");
         PredictionEngine engine = PredictionEngine.getInstance(mContext);
         
@@ -94,19 +105,27 @@ public class ClipboardManagerHelper {
     }
 
     /**
-     * NEW: Permanently delete an item (Swipe-to-Delete)
+     * Permanently delete an item (Swipe-to-Delete)
      */
     public void deleteItem(String text) {
         if (clipHistory.contains(text)) {
+            // FIX: Mark this text as "Just Deleted" so sync() ignores it
+            lastDeletedText = text;
+            
             clipHistory.remove(text);
             saveHistory();
         }
     }
 
     /**
-     * NEW: Restore an item (Undo Action)
+     * Restore an item (Undo Action)
      */
     public void restoreItem(String text, int position) {
+        // If we restore it, we should allow it to be synced again
+        if (text.equals(lastDeletedText)) {
+            lastDeletedText = null;
+        }
+
         if (position < 0) position = 0;
         if (position > clipHistory.size()) position = clipHistory.size();
         
