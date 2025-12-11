@@ -1,161 +1,207 @@
 package com.app.bubble;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.text.TextUtils;
-
+import android.os.Handler;
+import android.os.Looper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.TextView;
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
- * Manages clipboard history for the custom keyboard.
- * Stores the last 10 copied items.
- * UPDATED: Prevents deleted items from reappearing (Ghost Item Fix).
+ * Manages the Professional Gboard-style Clipboard UI.
+ * Handles Grid Layout, Swipe-to-Delete, and Undo logic.
  */
-public class ClipboardManagerHelper {
+public class ClipboardUiManager {
 
-    private static ClipboardManagerHelper instance;
-    private ClipboardManager systemClipboard;
-    private SharedPreferences prefs;
-    private List<String> clipHistory;
-    private Context mContext; 
-    
-    // FIX: Variable to ignore the item we just deleted so it doesn't auto-add back
-    private String lastDeletedText = null;
-    
-    private static final String PREFS_NAME = "BubbleClipboardPrefs";
-    private static final String KEY_HISTORY = "ClipHistoryString";
-    private static final int MAX_HISTORY_SIZE = 10;
-    private static final String DELIMITER = "#####"; 
+    private Context context;
+    private View rootView;
+    private ClipboardListener listener;
+    private RecyclerView recyclerView;
+    private ClipboardAdapter adapter;
+    private View undoContainer;
+    private Handler handler = new Handler(Looper.getMainLooper());
 
-    private ClipboardManagerHelper(Context context) {
-        this.mContext = context;
-        systemClipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        clipHistory = new ArrayList<>();
-        
-        loadHistory();
-        syncWithSystemClipboard();
+    // Undo State
+    private Runnable hideUndoRunnable;
+    private String lastDeletedItem;
+    private int lastDeletedPos;
+
+    public interface ClipboardListener {
+        void onPasteItem(String text);
+        void onCloseClipboard();
     }
 
-    public static synchronized ClipboardManagerHelper getInstance(Context context) {
-        if (instance == null) {
-            instance = new ClipboardManagerHelper(context);
-        }
-        return instance;
+    public ClipboardUiManager(Context context, View rootView, ClipboardListener listener) {
+        this.context = context;
+        this.rootView = rootView;
+        this.listener = listener;
+        setupViews();
     }
 
-    /**
-     * Checks if the system clipboard has new text and adds it to our history.
-     */
-    public void syncWithSystemClipboard() {
-        if (systemClipboard != null && systemClipboard.hasPrimaryClip()) {
-            if (systemClipboard.getPrimaryClip().getItemCount() > 0) {
-                ClipData.Item item = systemClipboard.getPrimaryClip().getItemAt(0);
-                if (item != null && item.getText() != null) {
-                    String currentText = item.getText().toString();
-                    
-                    // FIX: If this text matches what we just deleted, IGNORE IT.
-                    if (currentText.equals(lastDeletedText)) {
-                        return;
-                    }
-                    
-                    addClip(currentText);
-                }
+    private void setupViews() {
+        recyclerView = rootView.findViewById(R.id.clipboard_recycler);
+        undoContainer = rootView.findViewById(R.id.undo_container);
+        Button btnUndo = rootView.findViewById(R.id.btn_undo);
+        ImageButton btnBack = rootView.findViewById(R.id.btn_back_keyboard);
+
+        // 1. Setup RecyclerView (Staggered Grid for Masonry/Card look)
+        StaggeredGridLayoutManager layoutManager = new StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL);
+        recyclerView.setLayoutManager(layoutManager);
+
+        adapter = new ClipboardAdapter();
+        recyclerView.setAdapter(adapter);
+
+        // 2. Setup Swipe-to-Delete
+        ItemTouchHelper itemTouchHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.RIGHT) {
+            @Override
+            public boolean onMove(@NonNull RecyclerView rv, @NonNull RecyclerView.ViewHolder vh, @NonNull RecyclerView.ViewHolder target) {
+                return false;
             }
-        }
-    }
 
-    /**
-     * Adds a text to the history (Top of the list).
-     * Removes duplicates and keeps size limited.
-     */
-    public void addClip(String text) {
-        if (text == null || text.trim().isEmpty()) return;
-
-        // Reset the ignored item since a new copy action happened
-        lastDeletedText = null;
-
-        if (clipHistory.contains(text)) {
-            clipHistory.remove(text);
-        }
-        clipHistory.add(0, text);
-
-        if (clipHistory.size() > MAX_HISTORY_SIZE) {
-            clipHistory.remove(clipHistory.size() - 1);
-        }
-
-        saveHistory();
-
-        // Learn Vocabulary from Clipboard
-        String[] words = text.split("\\s+");
-        PredictionEngine engine = PredictionEngine.getInstance(mContext);
-        
-        for (String word : words) {
-            if (word.length() > 1) {
-                String cleanWord = word.replaceAll("[^a-zA-Z0-9]", "");
-                if (!cleanWord.isEmpty()) {
-                    engine.learnWord(cleanWord);
-                }
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
+                int position = viewHolder.getAdapterPosition();
+                deleteItem(position);
             }
-        }
+        });
+        itemTouchHelper.attachToRecyclerView(recyclerView);
+
+        // 3. Button Listeners
+        btnBack.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                listener.onCloseClipboard();
+            }
+        });
+
+        btnUndo.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                performUndo();
+            }
+        });
+        
+        // Initial Load
+        reloadHistory();
     }
 
-    /**
-     * Permanently delete an item (Swipe-to-Delete)
-     */
-    public void deleteItem(String text) {
-        if (clipHistory.contains(text)) {
-            // FIX: Mark this text as "Just Deleted" so sync() ignores it
-            lastDeletedText = text;
+    public void reloadHistory() {
+        List<String> history = ClipboardManagerHelper.getInstance(context).getHistory();
+        adapter.setData(history);
+    }
+
+    private void deleteItem(int position) {
+        // 1. Get Item
+        lastDeletedItem = adapter.getData().get(position);
+        lastDeletedPos = position;
+
+        // 2. Remove from Adapter (Visual)
+        adapter.removeItem(position);
+
+        // 3. Remove from Permanent Storage
+        ClipboardManagerHelper.getInstance(context).deleteItem(lastDeletedItem);
+
+        // 4. Show Undo Bar
+        showUndoBar();
+    }
+
+    private void showUndoBar() {
+        undoContainer.setVisibility(View.VISIBLE);
+        // Hide after 3 seconds
+        if (hideUndoRunnable != null) handler.removeCallbacks(hideUndoRunnable);
+        hideUndoRunnable = new Runnable() {
+            @Override
+            public void run() {
+                undoContainer.setVisibility(View.GONE);
+                lastDeletedItem = null; // Clear undo cache
+            }
+        };
+        handler.postDelayed(hideUndoRunnable, 3000);
+    }
+
+    private void performUndo() {
+        if (lastDeletedItem != null) {
+            // Restore to Storage
+            ClipboardManagerHelper.getInstance(context).restoreItem(lastDeletedItem, lastDeletedPos);
             
-            clipHistory.remove(text);
-            saveHistory();
+            // Restore to Adapter
+            adapter.restoreItem(lastDeletedItem, lastDeletedPos);
+            
+            // Hide Undo Bar
+            undoContainer.setVisibility(View.GONE);
+            if (hideUndoRunnable != null) handler.removeCallbacks(hideUndoRunnable);
         }
     }
 
-    /**
-     * Restore an item (Undo Action)
-     */
-    public void restoreItem(String text, int position) {
-        // If we restore it, we should allow it to be synced again
-        if (text.equals(lastDeletedText)) {
-            lastDeletedText = null;
+    // --- Adapter Class ---
+    private class ClipboardAdapter extends RecyclerView.Adapter<ClipboardAdapter.ClipViewHolder> {
+        private List<String> data = new ArrayList<>();
+
+        public void setData(List<String> newData) {
+            this.data = new ArrayList<>(newData);
+            notifyDataSetChanged();
         }
 
-        if (position < 0) position = 0;
-        if (position > clipHistory.size()) position = clipHistory.size();
-        
-        clipHistory.add(position, text);
-        saveHistory();
-    }
+        public List<String> getData() {
+            return data;
+        }
 
-    public List<String> getHistory() {
-        syncWithSystemClipboard(); 
-        return new ArrayList<>(clipHistory);
-    }
+        public void removeItem(int position) {
+            data.remove(position);
+            notifyItemRemoved(position);
+        }
 
-    public void clearHistory() {
-        clipHistory.clear();
-        saveHistory();
-    }
+        public void restoreItem(String item, int position) {
+            if (position >= 0 && position <= data.size()) {
+                data.add(position, item);
+                notifyItemInserted(position);
+            } else {
+                data.add(0, item);
+                notifyItemInserted(0);
+            }
+        }
 
-    // --- Persistence Logic ---
+        @NonNull
+        @Override
+        public ClipViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_clipboard_card, parent, false);
+            return new ClipViewHolder(v);
+        }
 
-    private void saveHistory() {
-        String joined = TextUtils.join(DELIMITER, clipHistory);
-        prefs.edit().putString(KEY_HISTORY, joined).apply();
-    }
+        @Override
+        public void onBindViewHolder(@NonNull ClipViewHolder holder, int position) {
+            final String text = data.get(position);
+            holder.textContent.setText(text);
+            
+            holder.itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    listener.onPasteItem(text);
+                }
+            });
+        }
 
-    private void loadHistory() {
-        String saved = prefs.getString(KEY_HISTORY, "");
-        if (!saved.isEmpty()) {
-            String[] items = saved.split(DELIMITER);
-            clipHistory.clear();
-            clipHistory.addAll(Arrays.asList(items));
+        @Override
+        public int getItemCount() {
+            return data.size();
+        }
+
+        class ClipViewHolder extends RecyclerView.ViewHolder {
+            TextView textContent;
+
+            ClipViewHolder(View itemView) {
+                super(itemView);
+                textContent = itemView.findViewById(R.id.text_content);
+            }
         }
     }
 }
