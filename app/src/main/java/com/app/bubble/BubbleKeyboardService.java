@@ -22,7 +22,7 @@ import java.util.List;
 
 /**
  * The core Service handling the Modern Keyboard logic.
- * Manages Switching layers, Predictions, Emoji interactions, and the Professional Clipboard.
+ * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, and Translation.
  */
 public class BubbleKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -33,13 +33,20 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private LinearLayout candidateContainer;
     private View emojiPaletteView;
     
-    // New Professional Clipboard Views
+    // Professional Clipboard Views
     private View clipboardPaletteView;
     private ClipboardUiManager clipboardUiManager;
+
+    // Translation Views & Logic
+    private View translationPanelView;
+    private TranslationUiManager translationUiManager;
+    private boolean isTranslationMode = false;
+    private StringBuilder translationBuffer = new StringBuilder();
 
     // Buttons
     private ImageButton btnClipboard;
     private ImageButton btnKeyboardSwitch;
+    private ImageButton btnTranslate;
 
     // Keyboards
     private Keyboard keyboardQwerty;
@@ -50,7 +57,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private boolean isEmojiVisible = false;
     private StringBuilder currentWord = new StringBuilder(); // Track typing for predictions
 
-    // Long Press Logic for Space Key (kept as backup, though button is primary now)
+    // Long Press Logic for Space Key (kept as backup)
     private Handler longPressHandler = new Handler(Looper.getMainLooper());
     private boolean isSpaceLongPressed = false;
     private static final int LONG_PRESS_DELAY = 500; 
@@ -75,7 +82,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         LayoutInflater inflater = getLayoutInflater();
 
         // 2. Add Candidate View (Predictions + Toolbar)
-        // FIX: Use 'mainLayout, false' to respect XML sizing
         candidateView = inflater.inflate(R.layout.candidate_view, mainLayout, false);
         candidateContainer = candidateView.findViewById(R.id.candidate_container);
         
@@ -84,7 +90,31 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         
         mainLayout.addView(candidateView);
 
-        // 3. Add Keyboard View - Middle
+        // 3. Add Translation Panel (Hidden by default)
+        // This replaces the candidate view when active
+        translationPanelView = inflater.inflate(R.layout.layout_translation_panel, mainLayout, false);
+        translationPanelView.setVisibility(View.GONE);
+        
+        translationUiManager = new TranslationUiManager(this, translationPanelView, new TranslationUiManager.TranslationListener() {
+            @Override
+            public void onTranslationResult(String translatedText) {
+                // Commit the TRANSLATED text to the app
+                InputConnection ic = getCurrentInputConnection();
+                if (ic != null) {
+                    ic.commitText(translatedText, 1);
+                }
+                // Clear buffer after sending
+                translationBuffer.setLength(0);
+            }
+
+            @Override
+            public void onCloseTranslation() {
+                toggleTranslationMode();
+            }
+        });
+        mainLayout.addView(translationPanelView);
+
+        // 4. Add Keyboard View - Middle
         kv = (KeyboardView) inflater.inflate(R.layout.layout_real_keyboard, mainLayout, false);
         keyboardQwerty = new Keyboard(this, R.xml.qwerty);
         keyboardSymbols = new Keyboard(this, R.xml.symbols);
@@ -93,7 +123,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         kv.setPreviewEnabled(false); 
         mainLayout.addView(kv);
 
-        // 4. Add Emoji Palette (Hidden by default)
+        // 5. Add Emoji Palette (Hidden by default)
         emojiPaletteView = inflater.inflate(R.layout.layout_emoji_palette, mainLayout, false);
         emojiPaletteView.setVisibility(View.GONE);
         EmojiUtils.setupEmojiGrid(this, emojiPaletteView, new EmojiUtils.EmojiListener() {
@@ -105,23 +135,18 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         setupEmojiControlButtons();
         mainLayout.addView(emojiPaletteView);
 
-        // 5. Add Professional Clipboard Palette (Hidden by default)
+        // 6. Add Professional Clipboard Palette (Hidden by default)
         clipboardPaletteView = inflater.inflate(R.layout.layout_clipboard_palette, mainLayout, false);
         clipboardPaletteView.setVisibility(View.GONE);
         
-        // Initialize the UI Manager for Clipboard
         clipboardUiManager = new ClipboardUiManager(this, clipboardPaletteView, new ClipboardUiManager.ClipboardListener() {
             @Override
             public void onPasteItem(String text) {
-                // FIX: Added Null Safety Check for Input Connection
                 InputConnection ic = getCurrentInputConnection();
                 if (ic != null) {
                     ic.commitText(text, 1);
-                    // Also learn the word being pasted to improve future suggestions
                     PredictionEngine.getInstance(BubbleKeyboardService.this).learnWord(text);
                 }
-                
-                // Close clipboard and return to keyboard
                 toggleClipboardPalette(); 
                 updateCandidates(currentWord.toString());
             }
@@ -131,7 +156,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 toggleClipboardPalette();
             }
         });
-        
         mainLayout.addView(clipboardPaletteView);
 
         return mainLayout;
@@ -149,7 +173,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             });
         }
 
-        // Keyboard Switcher Button (Fix for Spacebar issue)
+        // Keyboard Switcher Button
         btnKeyboardSwitch = candidateView.findViewById(R.id.btn_keyboard_switch);
         if (btnKeyboardSwitch != null) {
             btnKeyboardSwitch.setOnClickListener(new View.OnClickListener() {
@@ -159,6 +183,17 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     if (ime != null) {
                         ime.showInputMethodPicker();
                     }
+                }
+            });
+        }
+
+        // Translate Button
+        btnTranslate = candidateView.findViewById(R.id.btn_translate);
+        if (btnTranslate != null) {
+            btnTranslate.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    toggleTranslationMode();
                 }
             });
         }
@@ -186,7 +221,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     }
 
     // =========================================================
-    // KEY HANDLING
+    // KEY HANDLING (UPDATED for Translation)
     // =========================================================
 
     @Override
@@ -194,67 +229,100 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
 
-        switch (primaryCode) {
-            case Keyboard.KEYCODE_DELETE: // -5
+        // 1. Handle Special Keys regardless of mode
+        if (primaryCode == Keyboard.KEYCODE_DELETE) {
+            if (isTranslationMode) {
+                // Delete from Translation Buffer
+                if (translationBuffer.length() > 0) {
+                    translationBuffer.deleteCharAt(translationBuffer.length() - 1);
+                    translationUiManager.updateInputPreview(translationBuffer.toString());
+                }
+            } else {
                 handleBackspace();
-                break;
+            }
+            return;
+        }
 
-            case Keyboard.KEYCODE_SHIFT: // -1
-                isCaps = !isCaps;
-                keyboardQwerty.setShifted(isCaps);
-                kv.invalidateAllKeys();
-                break;
+        if (primaryCode == Keyboard.KEYCODE_SHIFT) {
+            isCaps = !isCaps;
+            keyboardQwerty.setShifted(isCaps);
+            kv.invalidateAllKeys();
+            return;
+        }
 
-            case Keyboard.KEYCODE_DONE: // -4 (Enter)
+        if (primaryCode == Keyboard.KEYCODE_DONE) { // Enter Key
+            if (isTranslationMode) {
+                // Trigger Translation
+                translationUiManager.performTranslation(translationBuffer.toString());
+            } else {
+                // Standard Enter
                 PredictionEngine.getInstance(this).learnWord(currentWord.toString());
                 currentWord.setLength(0); 
                 updateCandidates("");
                 ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
-                break;
+            }
+            return;
+        }
 
-            case -2: // "?123" Mode Switch
-                if (kv.getKeyboard() == keyboardQwerty) {
-                    kv.setKeyboard(keyboardSymbols);
+        if (primaryCode == -2) { // Mode Switch ?123
+            if (kv.getKeyboard() == keyboardQwerty) {
+                kv.setKeyboard(keyboardSymbols);
+            } else {
+                kv.setKeyboard(keyboardQwerty);
+            }
+            return;
+        }
+
+        if (primaryCode == -100) { // Emoji Toggle
+            toggleEmojiPalette();
+            return;
+        }
+
+        if (primaryCode == -10) { // Copy Tool
+            requestHideSelf(0);
+            Intent intent = new Intent(BubbleKeyboardService.this, TwoLineOverlayService.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startService(intent);
+            return;
+        }
+
+        // 2. Handle Text Input
+        if (primaryCode == 32) { // Space
+            if (!isSpaceLongPressed) {
+                if (isTranslationMode) {
+                    translationBuffer.append(" ");
+                    translationUiManager.updateInputPreview(translationBuffer.toString());
                 } else {
-                    kv.setKeyboard(keyboardQwerty);
-                }
-                break;
-
-            case -100: // Emoji Toggle
-                toggleEmojiPalette();
-                break;
-
-            case -10: // [COPY] BUTTON - Launches the Manual Copy Tool
-                requestHideSelf(0);
-                Intent intent = new Intent(BubbleKeyboardService.this, TwoLineOverlayService.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startService(intent);
-                break;
-
-            case 32: // Space
-                if (!isSpaceLongPressed) {
                     ic.commitText(" ", 1);
                     PredictionEngine.getInstance(this).learnWord(currentWord.toString());
                     currentWord.setLength(0); 
                     updateCandidates("");
                 }
-                break;
+            }
+            return;
+        }
 
-            default:
-                char code = (char) primaryCode;
-                if (Character.isLetter(code) && isCaps) {
-                    code = Character.toUpperCase(code);
-                }
-                ic.commitText(String.valueOf(code), 1);
-                
-                if (Character.isLetterOrDigit(code)) {
-                    currentWord.append(code);
-                    updateCandidates(currentWord.toString());
-                } else {
-                    PredictionEngine.getInstance(this).learnWord(currentWord.toString());
-                    currentWord.setLength(0);
-                    updateCandidates("");
-                }
+        // Normal Characters
+        char code = (char) primaryCode;
+        if (Character.isLetter(code) && isCaps) {
+            code = Character.toUpperCase(code);
+        }
+
+        if (isTranslationMode) {
+            // Add to buffer, update UI, DO NOT commit to app yet
+            translationBuffer.append(code);
+            translationUiManager.updateInputPreview(translationBuffer.toString());
+        } else {
+            // Standard Typing
+            ic.commitText(String.valueOf(code), 1);
+            if (Character.isLetterOrDigit(code)) {
+                currentWord.append(code);
+                updateCandidates(currentWord.toString());
+            } else {
+                PredictionEngine.getInstance(this).learnWord(currentWord.toString());
+                currentWord.setLength(0);
+                updateCandidates("");
+            }
         }
     }
 
@@ -272,7 +340,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     }
 
     // =========================================================
-    // VIEW SWITCHING
+    // VIEW SWITCHING MANAGEMENT
     // =========================================================
 
     private void toggleEmojiPalette() {
@@ -280,14 +348,13 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             // Show Emojis
             kv.setVisibility(View.GONE);
             candidateView.setVisibility(View.GONE);
-            clipboardPaletteView.setVisibility(View.GONE); // Ensure clipboard is closed
+            clipboardPaletteView.setVisibility(View.GONE);
+            translationPanelView.setVisibility(View.GONE); // Ensure translation is closed
+            isTranslationMode = false;
             emojiPaletteView.setVisibility(View.VISIBLE);
         } else {
             // Show Keyboard
-            emojiPaletteView.setVisibility(View.GONE);
-            clipboardPaletteView.setVisibility(View.GONE);
-            kv.setVisibility(View.VISIBLE);
-            candidateView.setVisibility(View.VISIBLE);
+            resetToStandardKeyboard();
         }
     }
 
@@ -297,19 +364,43 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             kv.setVisibility(View.GONE);
             candidateView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
+            translationPanelView.setVisibility(View.GONE); // Ensure translation is closed
+            isTranslationMode = false;
             clipboardPaletteView.setVisibility(View.VISIBLE);
             
-            // Reload data to show latest copied items
             if (clipboardUiManager != null) {
                 clipboardUiManager.reloadHistory();
             }
         } else {
-            // Show Keyboard
+            resetToStandardKeyboard();
+        }
+    }
+
+    private void toggleTranslationMode() {
+        if (translationPanelView.getVisibility() == View.GONE) {
+            // Show Translation Panel
+            candidateView.setVisibility(View.GONE); // Hide suggestions
             clipboardPaletteView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
-            kv.setVisibility(View.VISIBLE);
-            candidateView.setVisibility(View.VISIBLE);
+            
+            translationPanelView.setVisibility(View.VISIBLE);
+            kv.setVisibility(View.VISIBLE); // Keyboard MUST remain visible to type!
+            
+            isTranslationMode = true;
+            translationBuffer.setLength(0); // Clear buffer
+            translationUiManager.updateInputPreview("");
+        } else {
+            resetToStandardKeyboard();
         }
+    }
+
+    private void resetToStandardKeyboard() {
+        emojiPaletteView.setVisibility(View.GONE);
+        clipboardPaletteView.setVisibility(View.GONE);
+        translationPanelView.setVisibility(View.GONE);
+        candidateView.setVisibility(View.VISIBLE); // Show suggestions again
+        kv.setVisibility(View.VISIBLE);
+        isTranslationMode = false;
     }
 
     // =========================================================
