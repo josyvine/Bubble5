@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
 
 /**
  * Manages the In-Keyboard Translation Interface.
- * Handles Language Selection, UI updates, and API calls.
+ * Handles Language Selection, UI updates, API calls, and Live Typing Debounce.
  */
 public class TranslationUiManager {
 
@@ -36,6 +36,10 @@ public class TranslationUiManager {
     private String targetLangCode = "es"; // Default Spanish
     private ExecutorService executor = Executors.newSingleThreadExecutor();
     private Handler handler = new Handler(Looper.getMainLooper());
+
+    // Live Translation Debouncer
+    private Runnable autoTranslateRunnable;
+    private static final long DEBOUNCE_DELAY_MS = 700; // Wait 700ms after typing to translate
 
     public interface TranslationListener {
         void onTranslationResult(String translatedText);
@@ -97,7 +101,6 @@ public class TranslationUiManager {
                 
                 spinnerSource.setSelection(tgtIndex);
                 spinnerTarget.setSelection(srcIndex);
-                // Variables update automatically via onItemSelected listeners
             }
         });
 
@@ -105,6 +108,10 @@ public class TranslationUiManager {
         btnClose.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                // Cancel any pending translation
+                if (autoTranslateRunnable != null) {
+                    handler.removeCallbacks(autoTranslateRunnable);
+                }
                 listener.onCloseTranslation();
             }
         });
@@ -112,21 +119,40 @@ public class TranslationUiManager {
 
     /**
      * Called by BubbleKeyboardService when user types a character.
-     * Updates the white preview box.
+     * Updates the white preview box AND triggers Live Translation.
      */
-    public void updateInputPreview(String text) {
+    public void updateInputPreview(final String text) {
         if (inputPreview != null) {
             if (text == null || text.isEmpty()) {
                 inputPreview.setText("");
                 inputPreview.setHint("Type here to translate...");
+                // Cancel pending if empty
+                if (autoTranslateRunnable != null) handler.removeCallbacks(autoTranslateRunnable);
             } else {
                 inputPreview.setText(text);
+                
+                // --- FEATURE 4: LIVE TRANSLATION DEBOUNCER ---
+                // 1. Cancel previous timer (user is still typing)
+                if (autoTranslateRunnable != null) {
+                    handler.removeCallbacks(autoTranslateRunnable);
+                }
+
+                // 2. Create new timer
+                autoTranslateRunnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        performTranslation(text);
+                    }
+                };
+
+                // 3. Start timer (Wait 700ms)
+                handler.postDelayed(autoTranslateRunnable, DEBOUNCE_DELAY_MS);
             }
         }
     }
 
     /**
-     * Called by BubbleKeyboardService when user presses Enter/Done.
+     * Called automatically by Debouncer or manually by Enter key.
      * Triggers the API call.
      */
     public void performTranslation(final String textToTranslate) {
@@ -147,10 +173,9 @@ public class TranslationUiManager {
                         if (result != null) {
                             // Send back to Service to type it out
                             listener.onTranslationResult(result);
-                            // Clear preview for next sentence
-                            updateInputPreview("");
                         } else {
-                            Toast.makeText(context, "Translation Error", Toast.LENGTH_SHORT).show();
+                            // Silent fail on live typing to avoid annoying toasts
+                            // or show unobtrusive error
                         }
                     }
                 });
