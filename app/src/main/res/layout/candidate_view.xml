@@ -6,70 +6,78 @@
     android:background="#F0F0F0"
     android:gravity="center_vertical">
 
-    <!-- CLIPBOARD BUTTON -->
-    <ImageButton
-        android:id="@+id/btn_clipboard"
-        android:layout_width="45dp"
+    <!-- TOOLBAR CONTAINER (New) -->
+    <!-- Groups all icons so they can be hidden during typing -->
+    <LinearLayout
+        android:id="@+id/toolbar_container"
+        android:layout_width="wrap_content"
         android:layout_height="match_parent"
-        android:src="@drawable/ic_paste"
-        android:background="?android:attr/selectableItemBackground"
-        android:scaleType="centerInside"
-        android:padding="10dp"
-        android:contentDescription="Clipboard History" />
+        android:orientation="horizontal">
 
-    <!-- KEYBOARD SWITCHER BUTTON -->
-    <ImageButton
-        android:id="@+id/btn_keyboard_switch"
-        android:layout_width="45dp"
-        android:layout_height="match_parent"
-        android:src="@drawable/ic_keyboard_switch"
-        android:background="?android:attr/selectableItemBackground"
-        android:scaleType="centerInside"
-        android:padding="10dp"
-        android:contentDescription="Switch Keyboard" />
+        <!-- CLIPBOARD BUTTON -->
+        <ImageButton
+            android:id="@+id/btn_clipboard"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_paste"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="Clipboard History" />
 
-    <!-- TRANSLATE BUTTON -->
-    <ImageButton
-        android:id="@+id/btn_translate"
-        android:layout_width="45dp"
-        android:layout_height="match_parent"
-        android:src="@drawable/ic_translate"
-        android:background="?android:attr/selectableItemBackground"
-        android:scaleType="centerInside"
-        android:padding="10dp"
-        android:contentDescription="Translate" />
+        <!-- KEYBOARD SWITCHER BUTTON -->
+        <ImageButton
+            android:id="@+id/btn_keyboard_switch"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_keyboard_switch"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="Switch Keyboard" />
 
-    <!-- BUBBLE LAUNCHER BUTTON (New) -->
-    <!-- Launches/Shows the Floating Bubble if hidden -->
-    <ImageButton
-        android:id="@+id/btn_bubble_launcher"
-        android:layout_width="45dp"
-        android:layout_height="match_parent"
-        android:src="@drawable/ic_bubble_launcher"
-        android:background="?android:attr/selectableItemBackground"
-        android:scaleType="centerInside"
-        android:padding="10dp"
-        android:contentDescription="Show Bubble" />
+        <!-- TRANSLATE BUTTON -->
+        <ImageButton
+            android:id="@+id/btn_translate"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_translate"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="Translate" />
 
-    <!-- OCR COPY BUTTON (New) -->
-    <!-- Triggers Blue Box Selection -> Copies text directly (No Translation) -->
-    <ImageButton
-        android:id="@+id/btn_ocr_copy"
-        android:layout_width="45dp"
-        android:layout_height="match_parent"
-        android:src="@drawable/ic_ocr_copy"
-        android:background="?android:attr/selectableItemBackground"
-        android:scaleType="centerInside"
-        android:padding="10dp"
-        android:contentDescription="OCR Copy" />
+        <!-- BUBBLE LAUNCHER BUTTON -->
+        <ImageButton
+            android:id="@+id/btn_bubble_launcher"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_bubble_launcher"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="Show Bubble" />
 
-    <!-- Vertical Separator Line -->
-    <View
-        android:layout_width="1dp"
-        android:layout_height="match_parent"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp"
-        android:background="#CCCCCC" />
+        <!-- OCR COPY BUTTON -->
+        <ImageButton
+            android:id="@+id/btn_ocr_copy"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_ocr_copy"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="OCR Copy" />
+
+        <!-- Vertical Separator Line -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="#CCCCCC" />
+            
+    </LinearLayout>
 
     <!-- SCROLLABLE SUGGESTIONS AREA -->
     <HorizontalScrollView
