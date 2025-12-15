@@ -23,7 +23,7 @@ import java.util.List;
 /**
  * The core Service handling the Modern Keyboard logic.
  * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, Translation, and OCR Tools.
- * UPDATED: Fixed Translation Overwriting, Added Auto-Correct Undo.
+ * UPDATED: Fixed Auto-Correct Revert Logic (Cat/Car fix).
  */
 public class BubbleKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -44,7 +44,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private TranslationUiManager translationUiManager;
     private boolean isTranslationMode = false;
     private StringBuilder translationBuffer = new StringBuilder();
-    // FIX: Track length of text sent to app to delete it correctly before sending new translation
     private int lastSentTranslationLength = 0;
 
     // Buttons
@@ -64,9 +63,10 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private StringBuilder currentWord = new StringBuilder(); 
     private String lastCommittedWord = null; 
 
-    // Auto-Correct Undo State
+    // --- AUTO-CORRECT REVERT VARIABLES ---
     private boolean justAutoCorrected = false;
     private String lastOriginalWord = "";
+    private String lastCorrectedWord = "";
     private boolean ignoreNextCorrection = false;
 
     // Long Press Logic 
@@ -108,15 +108,10 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             public void onTranslationResult(String translatedText) {
                 InputConnection ic = getCurrentInputConnection();
                 if (ic != null) {
-                    // FIX: Delete the PREVIOUS translation output exactly
                     if (lastSentTranslationLength > 0) {
                         ic.deleteSurroundingText(lastSentTranslationLength, 0);
                     }
-                    
-                    // Commit new text
                     ic.commitText(translatedText, 1);
-                    
-                    // Update length tracking
                     lastSentTranslationLength = translatedText.length();
                 }
             }
@@ -156,6 +151,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 InputConnection ic = getCurrentInputConnection();
                 if (ic != null) {
                     ic.commitText(text, 1);
+                    // Use batch or single learn, here we use single for paste as it's small
                     PredictionEngine.getInstance(BubbleKeyboardService.this).learnWord(text);
                     lastCommittedWord = text.trim(); 
                 }
@@ -232,49 +228,39 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
         }
 
-        // --- DELETE KEY LOGIC ---
+        // --- DELETE KEY LOGIC (FIXED FOR REVERT) ---
         if (primaryCode == Keyboard.KEYCODE_DELETE) {
             if (isTranslationMode) {
-                // FIX: Editable Translation Box
                 if (translationBuffer.length() > 0) {
                     translationBuffer.deleteCharAt(translationBuffer.length() - 1);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                     
-                    // If buffer became empty, clear text in app
                     if (translationBuffer.length() == 0) {
                         ic.deleteSurroundingText(lastSentTranslationLength, 0);
                         lastSentTranslationLength = 0;
                     } 
-                    // Else: The debouncer in TranslationUiManager will trigger re-translation automatically
                 }
             } else {
-                // FIX: Undo Auto-Correction Logic
+                // FIX: Check if we just auto-corrected and need to revert
                 if (justAutoCorrected) {
-                    // Revert logic: User pressed backspace immediately after auto-correct
-                    // Delete "CorrectedWord " (word + space)
-                    // Type "OriginalWord"
+                    // User pressed backspace immediately after auto-correct (car )
+                    // We need to delete "correctedWord " and insert "originalWord"
                     
-                    // 1. Calculate length to delete (Corrected word + 1 space)
-                    // We don't track the corrected word length explicitly, but we know it was just committed.
-                    // A safer approach:
-                    ic.deleteSurroundingText(1, 0); // Delete space
-                    // We assume cursor is at end of word. We need to replace the word.
-                    // This is complex without tracking exact length. 
-                    // Simplified: Just delete the space and let user edit? 
-                    // Better: We stored state. 
+                    // Length to delete = corrected word length + 1 (space)
+                    int lengthToDelete = lastCorrectedWord.length() + 1;
+                    ic.deleteSurroundingText(lengthToDelete, 0);
                     
-                    // Let's rely on standard delete, but SET FLAG to ignore next correction
-                    justAutoCorrected = false;
+                    // Restore original
+                    ic.commitText(lastOriginalWord, 1);
+                    
+                    // Reset internal state to the original word
+                    currentWord.setLength(0);
+                    currentWord.append(lastOriginalWord);
+                    
+                    // Important: Tell space logic to NOT correct this word again immediately
                     ignoreNextCorrection = true;
+                    justAutoCorrected = false;
                     
-                    // Actually perform one delete to remove the space
-                    ic.deleteSurroundingText(1, 0);
-                    
-                    // Ideally we would swap the word back, but simple delete is safer to avoid index errors.
-                    // User deletes space -> Cursor is at end of "Apple". User deletes 'e' -> "Appl".
-                    // Then user types 'e' -> "Apple". Hits space -> "Apple ". 
-                    // To truly revert, we'd need to delete the whole word. 
-                    // For now, setting ignoreNextCorrection ensures if they correct it manually to "aple", it stays "aple".
                 } else {
                     handleBackspace();
                 }
@@ -318,43 +304,47 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             return;
         }
 
-        // --- SPACE KEY LOGIC ---
+        // --- SPACE KEY LOGIC (FIXED FOR SAVE STATE) ---
         if (primaryCode == 32) { 
             if (!isSpaceLongPressed) {
                 if (isTranslationMode) {
                     translationBuffer.append(" ");
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                 } else {
-                    // Logic: Auto-Correct
                     String typo = currentWord.toString();
+                    boolean correctionApplied = false;
                     
                     // Only correct if NOT ignored
-                    if (!ignoreNextCorrection) {
+                    if (!ignoreNextCorrection && typo.length() > 1) {
                         String correction = PredictionEngine.getInstance(this).getBestMatch(typo);
                         
                         if (correction != null && !correction.equals(typo)) {
-                            // Found a fix!
+                            // FIX: Save state BEFORE modifying
+                            lastOriginalWord = typo;
+                            lastCorrectedWord = correction;
+                            justAutoCorrected = true;
+                            
+                            // Apply Correction
                             ic.deleteSurroundingText(typo.length(), 0);
                             ic.commitText(correction, 1);
                             
-                            // Save state for Undo
-                            lastOriginalWord = typo;
-                            justAutoCorrected = true;
-                            
+                            // Update Current Word tracking to match reality
                             currentWord.setLength(0);
                             currentWord.append(correction);
-                        } else {
-                            justAutoCorrected = false;
+                            correctionApplied = true;
                         }
-                    } else {
-                        // Consumed the ignore flag
-                        ignoreNextCorrection = false;
+                    } 
+                    
+                    if (!correctionApplied) {
+                        // Reset flags if no correction happened
                         justAutoCorrected = false;
+                        ignoreNextCorrection = false;
                     }
 
+                    // Commit the Space
                     ic.commitText(" ", 1);
                     
-                    // Prediction Learning
+                    // Learning Logic
                     String justTyped = currentWord.toString();
                     PredictionEngine.getInstance(this).learnWord(justTyped);
                     
@@ -381,7 +371,9 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             translationUiManager.updateInputPreview(translationBuffer.toString());
         } else {
             ic.commitText(String.valueOf(code), 1);
-            justAutoCorrected = false; // Typing a char breaks the undo chain
+            
+            // Any typing breaks the "undo correction" chain
+            justAutoCorrected = false; 
             
             if (Character.isLetterOrDigit(code)) {
                 currentWord.append(code);
@@ -445,7 +437,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             kv.setVisibility(View.VISIBLE);
             isTranslationMode = true;
             translationBuffer.setLength(0); 
-            lastSentTranslationLength = 0; // Reset length tracker
+            lastSentTranslationLength = 0; 
             translationUiManager.updateInputPreview("");
         } else {
             resetToStandardKeyboard();
