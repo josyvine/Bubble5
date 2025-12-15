@@ -14,7 +14,7 @@ import java.util.Set;
 
 /**
  * Handles "Type Memory", Dictionary Suggestions, Next-Word Prediction, and Auto-Correction.
- * UPDATED: Prevents correcting valid words.
+ * UPDATED: Added Batch Learning to prevent crashes when copying large texts.
  */
 public class PredictionEngine {
 
@@ -113,6 +113,31 @@ public class PredictionEngine {
     }
 
     /**
+     * NEW: Batch Learn words (Prevents crash when copying Wikipedia/Large Text).
+     * Adds all words to memory first, then saves to disk ONCE.
+     */
+    public void learnWordsBatch(List<String> words) {
+        if (words == null || words.isEmpty()) return;
+        
+        boolean modified = false;
+        for (String w : words) {
+            if (w != null && w.length() > 1) {
+                if (!userDictionary.contains(w)) {
+                    userDictionary.add(w);
+                    modified = true;
+                }
+            }
+        }
+
+        if (modified) {
+            // Single Disk Write for thousands of words
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putStringSet(KEY_WORDS, userDictionary);
+            editor.apply();
+        }
+    }
+
+    /**
      * Learns the relationship between two words.
      */
     public void learnNextWord(String prev, String current) {
@@ -127,13 +152,11 @@ public class PredictionEngine {
             bigramMap.put(key, list);
         }
         
-        // Add to front of list (Most Recent)
         if (list.contains(value)) {
             list.remove(value);
         }
         list.add(0, value);
         
-        // Keep list small
         if (list.size() > 5) list.remove(list.size() - 1);
         
         saveBigrams();
@@ -141,13 +164,11 @@ public class PredictionEngine {
 
     /**
      * Auto-Correction Logic.
-     * Finds the closest dictionary word to the typo.
      */
     public String getBestMatch(String typo) {
         if (typo == null || typo.length() < 3) return null;
         
-        // FIX: If the typed word is ALREADY valid, do not correct it.
-        // This prevents "apple" -> "apply" mistakes.
+        // If word is already valid, do not correct
         if (userDictionary.contains(typo.toLowerCase())) {
             return null; 
         }
@@ -159,7 +180,6 @@ public class PredictionEngine {
         for (String dictWord : userDictionary) {
             int distance = calculateLevenshteinDistance(target, dictWord.toLowerCase());
             
-            // Threshold: Distance must be small (1 or 2 edits)
             if (distance < minDistance && distance <= 2 && Math.abs(dictWord.length() - target.length()) <= 2) {
                 minDistance = distance;
                 bestWord = dictWord;
@@ -170,7 +190,6 @@ public class PredictionEngine {
         return bestWord;
     }
 
-    // Standard Levenshtein Algorithm
     private int calculateLevenshteinDistance(String s1, String s2) {
         int[][] dp = new int[s1.length() + 1][s2.length() + 1];
         for (int i = 0; i <= s1.length(); i++) dp[i][0] = i;
