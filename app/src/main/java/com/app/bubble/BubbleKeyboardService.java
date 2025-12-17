@@ -2,6 +2,8 @@ package com.app.bubble;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.PorterDuff;
 import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
@@ -9,21 +11,25 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The core Service handling the Modern Keyboard logic.
- * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, Translation, and OCR Tools.
- * UPDATED: Fixed Clipboard closing Translation Panel bug.
+ * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, 
+ * Panel Translation, and the NEW Direct (Globe) Translation.
  */
 public class BubbleKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -39,17 +45,28 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private View clipboardPaletteView;
     private ClipboardUiManager clipboardUiManager;
 
-    // Translation Views & Logic
+    // Translation Views & Logic (Panel Mode)
     private View translationPanelView;
     private TranslationUiManager translationUiManager;
     private boolean isTranslationMode = false;
     private StringBuilder translationBuffer = new StringBuilder();
     private int lastSentTranslationLength = 0;
 
+    // --- NEW DIRECT TRANSLATION VARIABLES (Globe) ---
+    private boolean isDirectTranslateEnabled = false;
+    private String directTargetLangCode = "es"; // Default Spanish
+    private StringBuilder directBuffer = new StringBuilder();
+    private int lastDirectOutputLength = 0;
+    private long lastGlobeClickTime = 0;
+    private Handler directHandler = new Handler(Looper.getMainLooper());
+    private Runnable directTranslateRunnable;
+    private ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+
     // Buttons
     private ImageButton btnClipboard;
     private ImageButton btnKeyboardSwitch;
     private ImageButton btnTranslate;
+    private ImageButton btnDirectTranslate; // Globe
     private ImageButton btnBubbleLauncher; 
     private ImageButton btnOcrCopy;       
 
@@ -162,15 +179,16 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             @Override
             public void onPasteItem(String text) {
                 if (isTranslationMode) {
-                    // Paste into Translation Buffer
                     translationBuffer.append(text);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                     translationUiManager.performTranslation(translationBuffer.toString());
-                    
-                    // Close clipboard but keep translation open
                     toggleClipboardPalette(); 
+                } else if (isDirectTranslateEnabled) {
+                    // NEW: Paste into Direct Mode logic
+                    directBuffer.append(text);
+                    performDirectTranslation(directBuffer.toString());
+                    toggleClipboardPalette();
                 } else {
-                    // Normal Paste
                     InputConnection ic = getCurrentInputConnection();
                     if (ic != null) {
                         ic.commitText(text, 1);
@@ -204,9 +222,38 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             });
         }
         
+        // Panel Translation
         btnTranslate = candidateView.findViewById(R.id.btn_translate);
         if (btnTranslate != null) btnTranslate.setOnClickListener(v -> toggleTranslationMode());
         
+        // NEW: Direct Translation (Globe)
+        btnDirectTranslate = candidateView.findViewById(R.id.btn_direct_translate);
+        if (btnDirectTranslate != null) {
+            // Long Press: Select Language
+            btnDirectTranslate.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    showDirectLanguagePopup(v);
+                    return true;
+                }
+            });
+
+            // Double Tap: Toggle Mode
+            btnDirectTranslate.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    long clickTime = System.currentTimeMillis();
+                    if (clickTime - lastGlobeClickTime < 500) {
+                        // Double Click Detected
+                        toggleDirectTranslationMode();
+                    } else {
+                        Toast.makeText(BubbleKeyboardService.this, "Double tap to toggle Live Translation", Toast.LENGTH_SHORT).show();
+                    }
+                    lastGlobeClickTime = clickTime;
+                }
+            });
+        }
+
         btnBubbleLauncher = candidateView.findViewById(R.id.btn_bubble_launcher);
         if (btnBubbleLauncher != null) {
             btnBubbleLauncher.setOnClickListener(v -> {
@@ -227,6 +274,79 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
+    private void showDirectLanguagePopup(View v) {
+        PopupMenu popup = new PopupMenu(this, v);
+        // Populate menu
+        for (int i = 0; i < LanguageUtils.LANGUAGE_NAMES.length; i++) {
+            popup.getMenu().add(0, i, i, LanguageUtils.LANGUAGE_NAMES[i]);
+        }
+        popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+            @Override
+            public boolean onMenuItemClick(MenuItem item) {
+                int index = item.getItemId();
+                directTargetLangCode = LanguageUtils.getCode(index);
+                Toast.makeText(BubbleKeyboardService.this, "Target: " + LanguageUtils.LANGUAGE_NAMES[index], Toast.LENGTH_SHORT).show();
+                return true;
+            }
+        });
+        popup.show();
+    }
+
+    private void toggleDirectTranslationMode() {
+        isDirectTranslateEnabled = !isDirectTranslateEnabled;
+        if (isDirectTranslateEnabled) {
+            // Enable: Blue Tint
+            btnDirectTranslate.setColorFilter(Color.parseColor("#2196F3"), PorterDuff.Mode.SRC_IN);
+            Toast.makeText(this, "Live Translation ON (Auto -> " + directTargetLangCode + ")", Toast.LENGTH_SHORT).show();
+            // Clear buffer to start fresh
+            directBuffer.setLength(0);
+            lastDirectOutputLength = 0;
+        } else {
+            // Disable: Reset Color
+            btnDirectTranslate.clearColorFilter();
+            Toast.makeText(this, "Live Translation OFF", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void performDirectTranslation(final String text) {
+        if (text.trim().isEmpty()) return;
+
+        // Cancel pending
+        if (directTranslateRunnable != null) directHandler.removeCallbacks(directTranslateRunnable);
+
+        // Debounce (Wait 500ms before API call)
+        directTranslateRunnable = new Runnable() {
+            @Override
+            public void run() {
+                bgExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        // "auto" for source detection
+                        final String result = TranslateApi.translate("auto", directTargetLangCode, text);
+                        new Handler(Looper.getMainLooper()).post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (result != null) {
+                                    InputConnection ic = getCurrentInputConnection();
+                                    if (ic != null) {
+                                        // Delete previous translated chunk
+                                        if (lastDirectOutputLength > 0) {
+                                            ic.deleteSurroundingText(lastDirectOutputLength, 0);
+                                        }
+                                        // Write new translation
+                                        ic.commitText(result, 1);
+                                        lastDirectOutputLength = result.length();
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+        };
+        directHandler.postDelayed(directTranslateRunnable, 500);
+    }
+
     private void setupEmojiControlButtons() {
         View btnBack = emojiPaletteView.findViewById(R.id.btn_back_to_abc);
         if (btnBack != null) btnBack.setOnClickListener(v -> toggleEmojiPalette());
@@ -245,16 +365,14 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         if (ic == null) return;
 
         // Icon Visibility
-        // Logic: Hide toolbar when typing, Show when space/dot/empty
-        // Note: In Translation Mode, we might want icons visible to access clipboard
-        if (!isTranslationMode) {
+        if (!isTranslationMode && !isDirectTranslateEnabled) {
             if (Character.isLetterOrDigit(primaryCode)) {
                 if (toolbarContainer != null) toolbarContainer.setVisibility(View.GONE);
             } else if (primaryCode == 32 || primaryCode == 46 || currentWord.length() == 0) { 
                 if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
             }
         } else {
-            // Force visible in Translation Mode so users can use Clipboard/OCR icons
+            // Keep icons visible in modes
             if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
         }
 
@@ -264,11 +382,24 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 if (translationBuffer.length() > 0) {
                     translationBuffer.deleteCharAt(translationBuffer.length() - 1);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
-                    
                     if (translationBuffer.length() == 0) {
                         ic.deleteSurroundingText(lastSentTranslationLength, 0);
                         lastSentTranslationLength = 0;
                     } 
+                }
+            } else if (isDirectTranslateEnabled) {
+                // Direct Mode Delete
+                if (directBuffer.length() > 0) {
+                    directBuffer.deleteCharAt(directBuffer.length() - 1);
+                    // Re-translate based on new buffer
+                    performDirectTranslation(directBuffer.toString());
+                    if (directBuffer.length() == 0) {
+                        ic.deleteSurroundingText(lastDirectOutputLength, 0);
+                        lastDirectOutputLength = 0;
+                    }
+                } else {
+                    // Buffer empty, standard backspace
+                    handleBackspace();
                 }
             } else {
                 if (justAutoCorrected) {
@@ -296,6 +427,11 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         if (primaryCode == Keyboard.KEYCODE_DONE) { 
             if (isTranslationMode) {
                 translationUiManager.performTranslation(translationBuffer.toString());
+            } else if (isDirectTranslateEnabled) {
+                // Commit current translation, reset buffer
+                directBuffer.setLength(0);
+                lastDirectOutputLength = 0;
+                ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
             } else {
                 PredictionEngine.getInstance(this).learnWord(currentWord.toString());
                 lastCommittedWord = currentWord.toString();
@@ -328,41 +464,37 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 if (isTranslationMode) {
                     translationBuffer.append(" ");
                     translationUiManager.updateInputPreview(translationBuffer.toString());
+                } else if (isDirectTranslateEnabled) {
+                    directBuffer.append(" ");
+                    performDirectTranslation(directBuffer.toString());
                 } else {
+                    // Standard Space (Auto-correct)
                     String typo = currentWord.toString();
                     boolean correctionApplied = false;
                     
                     if (!ignoreNextCorrection && typo.length() > 1) {
                         String correction = PredictionEngine.getInstance(this).getBestMatch(typo);
-                        
                         if (correction != null && !correction.equals(typo)) {
                             lastOriginalWord = typo;
                             lastCorrectedWord = correction;
                             justAutoCorrected = true;
-                            
                             ic.deleteSurroundingText(typo.length(), 0);
                             ic.commitText(correction, 1);
-                            
                             currentWord.setLength(0);
                             currentWord.append(correction);
                             correctionApplied = true;
                         }
                     } 
-                    
                     if (!correctionApplied) {
                         justAutoCorrected = false;
                         ignoreNextCorrection = false;
                     }
-
                     ic.commitText(" ", 1);
-                    
                     String justTyped = currentWord.toString();
                     PredictionEngine.getInstance(this).learnWord(justTyped);
-                    
                     if (lastCommittedWord != null && !lastCommittedWord.isEmpty()) {
                         PredictionEngine.getInstance(this).learnNextWord(lastCommittedWord, justTyped);
                     }
-                    
                     lastCommittedWord = justTyped;
                     currentWord.setLength(0); 
                     updateCandidates("");
@@ -380,7 +512,14 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         if (isTranslationMode) {
             translationBuffer.append(code);
             translationUiManager.updateInputPreview(translationBuffer.toString());
+        } else if (isDirectTranslateEnabled) {
+            // Direct Translation Logic:
+            // 1. Add char to buffer
+            directBuffer.append(code);
+            // 2. Trigger translation (Debounced)
+            performDirectTranslation(directBuffer.toString());
         } else {
+            // Standard Typing
             ic.commitText(String.valueOf(code), 1);
             justAutoCorrected = false; 
             
@@ -423,37 +562,27 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
-    // FIX: Updated logic to allow clipboard OVER translation without closing translation
     private void toggleClipboardPalette() {
         if (clipboardPaletteView.getVisibility() == View.GONE) {
-            // OPEN CLIPBOARD
             kv.setVisibility(View.GONE);
-            
             // If translating, keep translation panel visible
             if (isTranslationMode) {
                 translationPanelView.setVisibility(View.VISIBLE);
             } else {
                 translationPanelView.setVisibility(View.GONE);
             }
-            
-            // Candidate/Toolbar is usually hidden by clipboard in full view mode
             candidateView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
-            
             clipboardPaletteView.setVisibility(View.VISIBLE);
-            
             if (clipboardUiManager != null) clipboardUiManager.reloadHistory();
         } else {
-            // CLOSE CLIPBOARD
+            // Restore previous state
             clipboardPaletteView.setVisibility(View.GONE);
-            
-            // If we were translating, go back to Translation state
             if (isTranslationMode) {
                 translationPanelView.setVisibility(View.VISIBLE);
-                candidateView.setVisibility(View.VISIBLE); // Show toolbar again
-                kv.setVisibility(View.VISIBLE); // Show keyboard
+                candidateView.setVisibility(View.VISIBLE); 
+                kv.setVisibility(View.VISIBLE);
             } else {
-                // Otherwise go back to standard keyboard
                 resetToStandardKeyboard();
             }
         }
@@ -461,13 +590,11 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
     private void toggleTranslationMode() {
         if (translationPanelView.getVisibility() == View.GONE) {
-            candidateView.setVisibility(View.VISIBLE); // Keep toolbar visible
+            candidateView.setVisibility(View.VISIBLE); 
             clipboardPaletteView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
-            
             translationPanelView.setVisibility(View.VISIBLE);
             kv.setVisibility(View.VISIBLE);
-            
             isTranslationMode = true;
             translationBuffer.setLength(0); 
             lastSentTranslationLength = 0; 
