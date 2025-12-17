@@ -23,7 +23,7 @@ import java.util.List;
 /**
  * The core Service handling the Modern Keyboard logic.
  * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, Translation, and OCR Tools.
- * UPDATED: Translation Layout (Top), Paste Support, Toolbar Visibility.
+ * UPDATED: Fixed Clipboard closing Translation Panel bug.
  */
 public class BubbleKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -92,7 +92,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
         LayoutInflater inflater = getLayoutInflater();
 
-        // 1. Setup Translation Panel (Added FIRST so it appears ABOVE icons)
+        // 1. Setup Translation Panel 
         translationPanelView = inflater.inflate(R.layout.layout_translation_panel, mainLayout, false);
         translationPanelView.setVisibility(View.GONE);
         
@@ -116,18 +116,16 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
             @Override
             public void onPasteText(String text) {
-                // NEW: Handle paste from long-press
                 if (text != null) {
                     translationBuffer.append(text);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
-                    // Trigger translation immediately
                     translationUiManager.performTranslation(translationBuffer.toString());
                 }
             }
         });
         mainLayout.addView(translationPanelView);
 
-        // 2. Setup Candidate View (Toolbar) - Added SECOND (Below Translation)
+        // 2. Setup Candidate View 
         candidateView = inflater.inflate(R.layout.candidate_view, mainLayout, false);
         candidateContainer = candidateView.findViewById(R.id.candidate_container);
         toolbarContainer = candidateView.findViewById(R.id.toolbar_container);
@@ -135,7 +133,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         setupToolbarButtons();
         mainLayout.addView(candidateView);
 
-        // 3. Setup Keyboard View - Middle
+        // 3. Setup Keyboard View
         kv = (KeyboardView) inflater.inflate(R.layout.layout_real_keyboard, mainLayout, false);
         keyboardQwerty = new Keyboard(this, R.xml.qwerty);
         keyboardSymbols = new Keyboard(this, R.xml.symbols);
@@ -164,11 +162,13 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             @Override
             public void onPasteItem(String text) {
                 if (isTranslationMode) {
-                    // NEW: If in Translation Mode, paste into buffer, not app
+                    // Paste into Translation Buffer
                     translationBuffer.append(text);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                     translationUiManager.performTranslation(translationBuffer.toString());
-                    toggleClipboardPalette(); // Close clipboard
+                    
+                    // Close clipboard but keep translation open
+                    toggleClipboardPalette(); 
                 } else {
                     // Normal Paste
                     InputConnection ic = getCurrentInputConnection();
@@ -272,7 +272,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 }
             } else {
                 if (justAutoCorrected) {
-                    // Revert Auto-Correct
                     int lengthToDelete = lastCorrectedWord.length() + 1;
                     ic.deleteSurroundingText(lengthToDelete, 0);
                     ic.commitText(lastOriginalWord, 1);
@@ -414,7 +413,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private void toggleEmojiPalette() {
         if (emojiPaletteView.getVisibility() == View.GONE) {
             kv.setVisibility(View.GONE);
-            // Hide everything else
             candidateView.setVisibility(View.GONE);
             clipboardPaletteView.setVisibility(View.GONE);
             translationPanelView.setVisibility(View.GONE);
@@ -425,50 +423,56 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
+    // FIX: Updated logic to allow clipboard OVER translation without closing translation
     private void toggleClipboardPalette() {
         if (clipboardPaletteView.getVisibility() == View.GONE) {
+            // OPEN CLIPBOARD
             kv.setVisibility(View.GONE);
-            // In Translation mode, we keep Translation panel visible?
-            // Actually, usually clipboard takes over full view.
-            // But user might want to copy-paste TO translation box.
-            // Simplified: Full overlay for now.
+            
+            // If translating, keep translation panel visible
+            if (isTranslationMode) {
+                translationPanelView.setVisibility(View.VISIBLE);
+            } else {
+                translationPanelView.setVisibility(View.GONE);
+            }
+            
+            // Candidate/Toolbar is usually hidden by clipboard in full view mode
             candidateView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
-            translationPanelView.setVisibility(View.GONE); // Hide translation temporarily
-            isTranslationMode = false; // Pause translation mode while selecting?
-            // Re-think: If we set isTranslationMode=false, we lose buffer.
-            // Better: Don't change isTranslationMode flag, just hide view.
             
-            // Logic adjust: If we were translating, remember it.
-            // But for simplicity, let's treat Clipboard as a modal overlay.
             clipboardPaletteView.setVisibility(View.VISIBLE);
             
             if (clipboardUiManager != null) clipboardUiManager.reloadHistory();
         } else {
-            // Restore previous state? Or just reset?
-            // Resetting is safer. User can re-open translation if needed.
-            resetToStandardKeyboard();
+            // CLOSE CLIPBOARD
+            clipboardPaletteView.setVisibility(View.GONE);
+            
+            // If we were translating, go back to Translation state
+            if (isTranslationMode) {
+                translationPanelView.setVisibility(View.VISIBLE);
+                candidateView.setVisibility(View.VISIBLE); // Show toolbar again
+                kv.setVisibility(View.VISIBLE); // Show keyboard
+            } else {
+                // Otherwise go back to standard keyboard
+                resetToStandardKeyboard();
+            }
         }
     }
 
     private void toggleTranslationMode() {
         if (translationPanelView.getVisibility() == View.GONE) {
-            // OPEN TRANSLATION
-            // Candidate view STAYS VISIBLE (Gboard style - icons below)
-            candidateView.setVisibility(View.VISIBLE); 
-            
+            candidateView.setVisibility(View.VISIBLE); // Keep toolbar visible
             clipboardPaletteView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
             
             translationPanelView.setVisibility(View.VISIBLE);
-            kv.setVisibility(View.VISIBLE); 
+            kv.setVisibility(View.VISIBLE);
             
             isTranslationMode = true;
             translationBuffer.setLength(0); 
             lastSentTranslationLength = 0; 
             translationUiManager.updateInputPreview("");
         } else {
-            // CLOSE TRANSLATION
             resetToStandardKeyboard();
         }
     }
