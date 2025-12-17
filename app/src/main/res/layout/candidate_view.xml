@@ -6,9 +6,9 @@
     android:background="#F0F0F0"
     android:gravity="center_vertical">
 
-    <!-- TOOLBAR CONTAINER (New) -->
+    <!-- TOOLBAR CONTAINER -->
     <!-- Groups all icons so they can be hidden during typing -->
-    <LinearLayout 
+    <LinearLayout
         android:id="@+id/toolbar_container"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
@@ -36,7 +36,7 @@
             android:padding="10dp"
             android:contentDescription="Switch Keyboard" />
 
-        <!-- TRANSLATE BUTTON -->
+        <!-- TRANSLATE BUTTON (Panel) -->
         <ImageButton
             android:id="@+id/btn_translate"
             android:layout_width="45dp"
@@ -46,6 +46,18 @@
             android:scaleType="centerInside"
             android:padding="10dp"
             android:contentDescription="Translate" />
+
+        <!-- DIRECT TRANSLATE GLOBE BUTTON (New) -->
+        <!-- Long press to select language, Double tap to toggle mode -->
+        <ImageButton
+            android:id="@+id/btn_direct_translate"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_globe"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="Direct Translate" />
 
         <!-- BUBBLE LAUNCHER BUTTON -->
         <ImageButton
