@@ -23,7 +23,7 @@ import java.util.List;
 /**
  * The core Service handling the Modern Keyboard logic.
  * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, Translation, and OCR Tools.
- * UPDATED: Fixed Auto-Correct Revert Logic (Cat/Car fix).
+ * UPDATED: Translation Layout (Top), Paste Support, Toolbar Visibility.
  */
 public class BubbleKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -63,7 +63,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private StringBuilder currentWord = new StringBuilder(); 
     private String lastCommittedWord = null; 
 
-    // --- AUTO-CORRECT REVERT VARIABLES ---
+    // Auto-Correct Undo State
     private boolean justAutoCorrected = false;
     private String lastOriginalWord = "";
     private String lastCorrectedWord = "";
@@ -92,14 +92,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
         LayoutInflater inflater = getLayoutInflater();
 
-        candidateView = inflater.inflate(R.layout.candidate_view, mainLayout, false);
-        candidateContainer = candidateView.findViewById(R.id.candidate_container);
-        toolbarContainer = candidateView.findViewById(R.id.toolbar_container);
-        
-        setupToolbarButtons();
-        mainLayout.addView(candidateView);
-
-        // Setup Translation Panel
+        // 1. Setup Translation Panel (Added FIRST so it appears ABOVE icons)
         translationPanelView = inflater.inflate(R.layout.layout_translation_panel, mainLayout, false);
         translationPanelView.setVisibility(View.GONE);
         
@@ -120,9 +113,29 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             public void onCloseTranslation() {
                 toggleTranslationMode();
             }
+
+            @Override
+            public void onPasteText(String text) {
+                // NEW: Handle paste from long-press
+                if (text != null) {
+                    translationBuffer.append(text);
+                    translationUiManager.updateInputPreview(translationBuffer.toString());
+                    // Trigger translation immediately
+                    translationUiManager.performTranslation(translationBuffer.toString());
+                }
+            }
         });
         mainLayout.addView(translationPanelView);
 
+        // 2. Setup Candidate View (Toolbar) - Added SECOND (Below Translation)
+        candidateView = inflater.inflate(R.layout.candidate_view, mainLayout, false);
+        candidateContainer = candidateView.findViewById(R.id.candidate_container);
+        toolbarContainer = candidateView.findViewById(R.id.toolbar_container);
+        
+        setupToolbarButtons();
+        mainLayout.addView(candidateView);
+
+        // 3. Setup Keyboard View - Middle
         kv = (KeyboardView) inflater.inflate(R.layout.layout_real_keyboard, mainLayout, false);
         keyboardQwerty = new Keyboard(this, R.xml.qwerty);
         keyboardSymbols = new Keyboard(this, R.xml.symbols);
@@ -131,6 +144,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         kv.setPreviewEnabled(false); 
         mainLayout.addView(kv);
 
+        // 4. Setup Emoji Palette
         emojiPaletteView = inflater.inflate(R.layout.layout_emoji_palette, mainLayout, false);
         emojiPaletteView.setVisibility(View.GONE);
         EmojiUtils.setupEmojiGrid(this, emojiPaletteView, new EmojiUtils.EmojiListener() {
@@ -142,21 +156,30 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         setupEmojiControlButtons();
         mainLayout.addView(emojiPaletteView);
 
+        // 5. Setup Clipboard Palette
         clipboardPaletteView = inflater.inflate(R.layout.layout_clipboard_palette, mainLayout, false);
         clipboardPaletteView.setVisibility(View.GONE);
         
         clipboardUiManager = new ClipboardUiManager(this, clipboardPaletteView, new ClipboardUiManager.ClipboardListener() {
             @Override
             public void onPasteItem(String text) {
-                InputConnection ic = getCurrentInputConnection();
-                if (ic != null) {
-                    ic.commitText(text, 1);
-                    // Use batch or single learn, here we use single for paste as it's small
-                    PredictionEngine.getInstance(BubbleKeyboardService.this).learnWord(text);
-                    lastCommittedWord = text.trim(); 
+                if (isTranslationMode) {
+                    // NEW: If in Translation Mode, paste into buffer, not app
+                    translationBuffer.append(text);
+                    translationUiManager.updateInputPreview(translationBuffer.toString());
+                    translationUiManager.performTranslation(translationBuffer.toString());
+                    toggleClipboardPalette(); // Close clipboard
+                } else {
+                    // Normal Paste
+                    InputConnection ic = getCurrentInputConnection();
+                    if (ic != null) {
+                        ic.commitText(text, 1);
+                        PredictionEngine.getInstance(BubbleKeyboardService.this).learnWord(text);
+                        lastCommittedWord = text.trim(); 
+                    }
+                    toggleClipboardPalette(); 
+                    updateCandidates("");
                 }
-                toggleClipboardPalette(); 
-                updateCandidates("");
             }
 
             @Override
@@ -222,13 +245,20 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         if (ic == null) return;
 
         // Icon Visibility
-        if (Character.isLetterOrDigit(primaryCode)) {
-            if (toolbarContainer != null) toolbarContainer.setVisibility(View.GONE);
-        } else if (primaryCode == 32 || primaryCode == 46 || currentWord.length() == 0) { 
+        // Logic: Hide toolbar when typing, Show when space/dot/empty
+        // Note: In Translation Mode, we might want icons visible to access clipboard
+        if (!isTranslationMode) {
+            if (Character.isLetterOrDigit(primaryCode)) {
+                if (toolbarContainer != null) toolbarContainer.setVisibility(View.GONE);
+            } else if (primaryCode == 32 || primaryCode == 46 || currentWord.length() == 0) { 
+                if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
+            }
+        } else {
+            // Force visible in Translation Mode so users can use Clipboard/OCR icons
             if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
         }
 
-        // --- DELETE KEY LOGIC (FIXED FOR REVERT) ---
+        // --- DELETE KEY LOGIC ---
         if (primaryCode == Keyboard.KEYCODE_DELETE) {
             if (isTranslationMode) {
                 if (translationBuffer.length() > 0) {
@@ -241,26 +271,15 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     } 
                 }
             } else {
-                // FIX: Check if we just auto-corrected and need to revert
                 if (justAutoCorrected) {
-                    // User pressed backspace immediately after auto-correct (car )
-                    // We need to delete "correctedWord " and insert "originalWord"
-                    
-                    // Length to delete = corrected word length + 1 (space)
+                    // Revert Auto-Correct
                     int lengthToDelete = lastCorrectedWord.length() + 1;
                     ic.deleteSurroundingText(lengthToDelete, 0);
-                    
-                    // Restore original
                     ic.commitText(lastOriginalWord, 1);
-                    
-                    // Reset internal state to the original word
                     currentWord.setLength(0);
                     currentWord.append(lastOriginalWord);
-                    
-                    // Important: Tell space logic to NOT correct this word again immediately
                     ignoreNextCorrection = true;
                     justAutoCorrected = false;
-                    
                 } else {
                     handleBackspace();
                 }
@@ -304,7 +323,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             return;
         }
 
-        // --- SPACE KEY LOGIC (FIXED FOR SAVE STATE) ---
+        // --- SPACE KEY LOGIC ---
         if (primaryCode == 32) { 
             if (!isSpaceLongPressed) {
                 if (isTranslationMode) {
@@ -314,21 +333,17 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     String typo = currentWord.toString();
                     boolean correctionApplied = false;
                     
-                    // Only correct if NOT ignored
                     if (!ignoreNextCorrection && typo.length() > 1) {
                         String correction = PredictionEngine.getInstance(this).getBestMatch(typo);
                         
                         if (correction != null && !correction.equals(typo)) {
-                            // FIX: Save state BEFORE modifying
                             lastOriginalWord = typo;
                             lastCorrectedWord = correction;
                             justAutoCorrected = true;
                             
-                            // Apply Correction
                             ic.deleteSurroundingText(typo.length(), 0);
                             ic.commitText(correction, 1);
                             
-                            // Update Current Word tracking to match reality
                             currentWord.setLength(0);
                             currentWord.append(correction);
                             correctionApplied = true;
@@ -336,15 +351,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     } 
                     
                     if (!correctionApplied) {
-                        // Reset flags if no correction happened
                         justAutoCorrected = false;
                         ignoreNextCorrection = false;
                     }
 
-                    // Commit the Space
                     ic.commitText(" ", 1);
                     
-                    // Learning Logic
                     String justTyped = currentWord.toString();
                     PredictionEngine.getInstance(this).learnWord(justTyped);
                     
@@ -371,8 +383,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             translationUiManager.updateInputPreview(translationBuffer.toString());
         } else {
             ic.commitText(String.valueOf(code), 1);
-            
-            // Any typing breaks the "undo correction" chain
             justAutoCorrected = false; 
             
             if (Character.isLetterOrDigit(code)) {
@@ -404,6 +414,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private void toggleEmojiPalette() {
         if (emojiPaletteView.getVisibility() == View.GONE) {
             kv.setVisibility(View.GONE);
+            // Hide everything else
             candidateView.setVisibility(View.GONE);
             clipboardPaletteView.setVisibility(View.GONE);
             translationPanelView.setVisibility(View.GONE);
@@ -417,29 +428,47 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private void toggleClipboardPalette() {
         if (clipboardPaletteView.getVisibility() == View.GONE) {
             kv.setVisibility(View.GONE);
+            // In Translation mode, we keep Translation panel visible?
+            // Actually, usually clipboard takes over full view.
+            // But user might want to copy-paste TO translation box.
+            // Simplified: Full overlay for now.
             candidateView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
-            translationPanelView.setVisibility(View.GONE);
-            isTranslationMode = false;
+            translationPanelView.setVisibility(View.GONE); // Hide translation temporarily
+            isTranslationMode = false; // Pause translation mode while selecting?
+            // Re-think: If we set isTranslationMode=false, we lose buffer.
+            // Better: Don't change isTranslationMode flag, just hide view.
+            
+            // Logic adjust: If we were translating, remember it.
+            // But for simplicity, let's treat Clipboard as a modal overlay.
             clipboardPaletteView.setVisibility(View.VISIBLE);
+            
             if (clipboardUiManager != null) clipboardUiManager.reloadHistory();
         } else {
+            // Restore previous state? Or just reset?
+            // Resetting is safer. User can re-open translation if needed.
             resetToStandardKeyboard();
         }
     }
 
     private void toggleTranslationMode() {
         if (translationPanelView.getVisibility() == View.GONE) {
-            candidateView.setVisibility(View.GONE);
+            // OPEN TRANSLATION
+            // Candidate view STAYS VISIBLE (Gboard style - icons below)
+            candidateView.setVisibility(View.VISIBLE); 
+            
             clipboardPaletteView.setVisibility(View.GONE);
             emojiPaletteView.setVisibility(View.GONE);
+            
             translationPanelView.setVisibility(View.VISIBLE);
-            kv.setVisibility(View.VISIBLE);
+            kv.setVisibility(View.VISIBLE); 
+            
             isTranslationMode = true;
             translationBuffer.setLength(0); 
             lastSentTranslationLength = 0; 
             translationUiManager.updateInputPreview("");
         } else {
+            // CLOSE TRANSLATION
             resetToStandardKeyboard();
         }
     }
