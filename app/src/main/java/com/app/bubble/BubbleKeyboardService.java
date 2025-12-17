@@ -9,6 +9,7 @@ import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.ContextThemeWrapper;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executors;
  * The core Service handling the Modern Keyboard logic.
  * Manages Switching layers, Predictions, Emoji interactions, Professional Clipboard, 
  * Panel Translation, and the NEW Direct (Globe) Translation.
+ * UPDATED: Fixed Invisible Popup Menu & Globe Toggle Logic.
  */
 public class BubbleKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -52,7 +54,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private StringBuilder translationBuffer = new StringBuilder();
     private int lastSentTranslationLength = 0;
 
-    // --- NEW DIRECT TRANSLATION VARIABLES (Globe) ---
+    // --- DIRECT TRANSLATION VARIABLES (Globe) ---
     private boolean isDirectTranslateEnabled = false;
     private String directTargetLangCode = "es"; // Default Spanish
     private StringBuilder directBuffer = new StringBuilder();
@@ -184,7 +186,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     translationUiManager.performTranslation(translationBuffer.toString());
                     toggleClipboardPalette(); 
                 } else if (isDirectTranslateEnabled) {
-                    // NEW: Paste into Direct Mode logic
                     directBuffer.append(text);
                     performDirectTranslation(directBuffer.toString());
                     toggleClipboardPalette();
@@ -222,11 +223,10 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             });
         }
         
-        // Panel Translation
         btnTranslate = candidateView.findViewById(R.id.btn_translate);
         if (btnTranslate != null) btnTranslate.setOnClickListener(v -> toggleTranslationMode());
         
-        // NEW: Direct Translation (Globe)
+        // DIRECT TRANSLATION (Globe)
         btnDirectTranslate = candidateView.findViewById(R.id.btn_direct_translate);
         if (btnDirectTranslate != null) {
             // Long Press: Select Language
@@ -238,18 +238,23 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 }
             });
 
-            // Double Tap: Toggle Mode
+            // FIX: Single Tap Disable / Double Tap Enable
             btnDirectTranslate.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    long clickTime = System.currentTimeMillis();
-                    if (clickTime - lastGlobeClickTime < 500) {
-                        // Double Click Detected
+                    if (isDirectTranslateEnabled) {
+                        // If ON -> Single Tap turns it OFF
                         toggleDirectTranslationMode();
                     } else {
-                        Toast.makeText(BubbleKeyboardService.this, "Double tap to toggle Live Translation", Toast.LENGTH_SHORT).show();
+                        // If OFF -> Require Double Tap to turn ON
+                        long clickTime = System.currentTimeMillis();
+                        if (clickTime - lastGlobeClickTime < 500) {
+                            toggleDirectTranslationMode();
+                        } else {
+                            Toast.makeText(BubbleKeyboardService.this, "Double tap to Enable", Toast.LENGTH_SHORT).show();
+                        }
+                        lastGlobeClickTime = clickTime;
                     }
-                    lastGlobeClickTime = clickTime;
                 }
             });
         }
@@ -274,8 +279,11 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
+    // FIX: Use ContextThemeWrapper to make Popup Menu visible in Service
     private void showDirectLanguagePopup(View v) {
-        PopupMenu popup = new PopupMenu(this, v);
+        Context wrapper = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light);
+        PopupMenu popup = new PopupMenu(wrapper, v);
+        
         // Populate menu
         for (int i = 0; i < LanguageUtils.LANGUAGE_NAMES.length; i++) {
             popup.getMenu().add(0, i, i, LanguageUtils.LANGUAGE_NAMES[i]);
@@ -428,7 +436,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             if (isTranslationMode) {
                 translationUiManager.performTranslation(translationBuffer.toString());
             } else if (isDirectTranslateEnabled) {
-                // Commit current translation, reset buffer
                 directBuffer.setLength(0);
                 lastDirectOutputLength = 0;
                 ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
@@ -468,7 +475,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     directBuffer.append(" ");
                     performDirectTranslation(directBuffer.toString());
                 } else {
-                    // Standard Space (Auto-correct)
                     String typo = currentWord.toString();
                     boolean correctionApplied = false;
                     
@@ -513,13 +519,9 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             translationBuffer.append(code);
             translationUiManager.updateInputPreview(translationBuffer.toString());
         } else if (isDirectTranslateEnabled) {
-            // Direct Translation Logic:
-            // 1. Add char to buffer
             directBuffer.append(code);
-            // 2. Trigger translation (Debounced)
             performDirectTranslation(directBuffer.toString());
         } else {
-            // Standard Typing
             ic.commitText(String.valueOf(code), 1);
             justAutoCorrected = false; 
             
@@ -565,7 +567,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private void toggleClipboardPalette() {
         if (clipboardPaletteView.getVisibility() == View.GONE) {
             kv.setVisibility(View.GONE);
-            // If translating, keep translation panel visible
             if (isTranslationMode) {
                 translationPanelView.setVisibility(View.VISIBLE);
             } else {
@@ -576,7 +577,6 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             clipboardPaletteView.setVisibility(View.VISIBLE);
             if (clipboardUiManager != null) clipboardUiManager.reloadHistory();
         } else {
-            // Restore previous state
             clipboardPaletteView.setVisibility(View.GONE);
             if (isTranslationMode) {
                 translationPanelView.setVisibility(View.VISIBLE);
