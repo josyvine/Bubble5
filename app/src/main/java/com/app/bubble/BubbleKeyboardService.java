@@ -1,5 +1,3 @@
---- START OF FILE BubbleKeyboardService.java ---
-
 package com.app.bubble;
 
 import android.app.AlertDialog;
