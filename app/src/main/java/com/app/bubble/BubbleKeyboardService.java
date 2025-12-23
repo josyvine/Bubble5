@@ -1,6 +1,10 @@
+--- START OF FILE BubbleKeyboardService.java ---
+
 package com.app.bubble;
 
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
@@ -15,6 +19,8 @@ import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageButton;
@@ -124,7 +130,11 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                         ic.deleteSurroundingText(lastSentTranslationLength, 0);
                     }
                     ic.commitText(translatedText, 1);
-                    lastSentTranslationLength = translatedText.length();
+                    // FIX 1: Clear fields after sending
+                    lastSentTranslationLength = 0; 
+                    translationBuffer.setLength(0);
+                    translationUiManager.updateInputPreview("");
+                    updateCandidates(""); // Reset suggestions
                 }
             }
 
@@ -139,6 +149,8 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     translationBuffer.append(text);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                     translationUiManager.performTranslation(translationBuffer.toString());
+                    // Update suggestions for pasted text
+                    updateTranslationCandidates();
                 }
             }
         });
@@ -279,25 +291,29 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
-    // FIX: Use ContextThemeWrapper to make Popup Menu visible in Service
+    // FIX 3: Use AlertDialog for language selection instead of PopupMenu for visibility
     private void showDirectLanguagePopup(View v) {
-        Context wrapper = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light);
-        PopupMenu popup = new PopupMenu(wrapper, v);
-        
-        // Populate menu
-        for (int i = 0; i < LanguageUtils.LANGUAGE_NAMES.length; i++) {
-            popup.getMenu().add(0, i, i, LanguageUtils.LANGUAGE_NAMES[i]);
-        }
-        popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light));
+        builder.setTitle("Select Target Language");
+        builder.setItems(LanguageUtils.LANGUAGE_NAMES, new DialogInterface.OnClickListener() {
             @Override
-            public boolean onMenuItemClick(MenuItem item) {
-                int index = item.getItemId();
+            public void onClick(DialogInterface dialog, int which) {
+                int index = which;
                 directTargetLangCode = LanguageUtils.getCode(index);
                 Toast.makeText(BubbleKeyboardService.this, "Target: " + LanguageUtils.LANGUAGE_NAMES[index], Toast.LENGTH_SHORT).show();
-                return true;
             }
         });
-        popup.show();
+        
+        AlertDialog dialog = builder.create();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.token = mainLayout.getWindowToken();
+            lp.type = WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG;
+            window.setAttributes(lp);
+            window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+        }
+        dialog.show();
     }
 
     private void toggleDirectTranslationMode() {
@@ -393,7 +409,11 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     if (translationBuffer.length() == 0) {
                         ic.deleteSurroundingText(lastSentTranslationLength, 0);
                         lastSentTranslationLength = 0;
-                    } 
+                        updateCandidates("");
+                    } else {
+                        // Update suggestions after delete
+                        updateTranslationCandidates();
+                    }
                 }
             } else if (isDirectTranslateEnabled) {
                 // Direct Mode Delete
@@ -471,6 +491,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 if (isTranslationMode) {
                     translationBuffer.append(" ");
                     translationUiManager.updateInputPreview(translationBuffer.toString());
+                    updateTranslationCandidates();
                 } else if (isDirectTranslateEnabled) {
                     directBuffer.append(" ");
                     performDirectTranslation(directBuffer.toString());
@@ -518,6 +539,8 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         if (isTranslationMode) {
             translationBuffer.append(code);
             translationUiManager.updateInputPreview(translationBuffer.toString());
+            // FIX 2: Show candidates while typing in translation field
+            updateTranslationCandidates();
         } else if (isDirectTranslateEnabled) {
             directBuffer.append(code);
             performDirectTranslation(directBuffer.toString());
@@ -628,6 +651,25 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
+    // Helper to extract the last word in the translation buffer for predictions
+    private void updateTranslationCandidates() {
+        String text = translationBuffer.toString();
+        String word = "";
+        if (!text.isEmpty()) {
+            if (text.endsWith(" ")) {
+                word = ""; // Show next word suggestions?
+            } else {
+                int lastSpace = text.lastIndexOf(' ');
+                if (lastSpace != -1) {
+                    word = text.substring(lastSpace + 1);
+                } else {
+                    word = text;
+                }
+            }
+        }
+        updateCandidates(word);
+    }
+
     private void updateCandidates(String wordBeingTyped) {
         if (candidateContainer == null) return;
         
@@ -652,19 +694,32 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             tv.setBackgroundResource(android.R.drawable.list_selector_background);
             
             tv.setOnClickListener(v -> {
-                InputConnection ic = getCurrentInputConnection();
-                if (ic != null) {
-                    if (currentWord.length() > 0) {
-                        ic.deleteSurroundingText(currentWord.length(), 0);
-                    }
-                    ic.commitText(word + " ", 1);
-                    PredictionEngine.getInstance(this).learnWord(word);
-                    if (lastCommittedWord != null) {
-                        PredictionEngine.getInstance(this).learnNextWord(lastCommittedWord, word);
-                    }
-                    lastCommittedWord = word;
-                    currentWord.setLength(0);
+                if (isTranslationMode) {
+                    // Logic to insert word into translation buffer
+                    String text = translationBuffer.toString();
+                    int lastSpace = text.lastIndexOf(' ');
+                    String prefix = (lastSpace == -1) ? "" : text.substring(0, lastSpace + 1);
+                    translationBuffer.setLength(0);
+                    translationBuffer.append(prefix).append(word).append(" ");
+                    
+                    translationUiManager.updateInputPreview(translationBuffer.toString());
+                    translationUiManager.performTranslation(translationBuffer.toString());
                     updateCandidates("");
+                } else {
+                    InputConnection ic = getCurrentInputConnection();
+                    if (ic != null) {
+                        if (currentWord.length() > 0) {
+                            ic.deleteSurroundingText(currentWord.length(), 0);
+                        }
+                        ic.commitText(word + " ", 1);
+                        PredictionEngine.getInstance(this).learnWord(word);
+                        if (lastCommittedWord != null) {
+                            PredictionEngine.getInstance(this).learnNextWord(lastCommittedWord, word);
+                        }
+                        lastCommittedWord = word;
+                        currentWord.setLength(0);
+                        updateCandidates("");
+                    }
                 }
             });
             candidateContainer.addView(tv);
