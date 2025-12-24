@@ -47,7 +47,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private TranslationUiManager translationUiManager;
     private boolean isTranslationMode = false;
     private StringBuilder translationBuffer = new StringBuilder();
-    // REMOVED: lastSentTranslationLength (No longer needed with setComposingText)
+    
+    // FIX: Re-added this variable because KEYCODE_DELETE logic still references it
+    private int lastSentTranslationLength = 0;
+    
+    // Flag to clear text after hitting Enter/Send
+    private boolean clearTranslationOnNextResult = false;
 
     private boolean isDirectTranslateEnabled = false;
     private String directTargetLangCode = "es"; 
@@ -108,17 +113,22 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             public void onTranslationResult(String translatedText) {
                 InputConnection ic = getCurrentInputConnection();
                 if (ic != null) {
-                    // FIX 1: Use setComposingText to automatically replace old translation
-                    // This prevents text from joining together
+                    // FIX: Use setComposingText to replace text smoothly
                     ic.setComposingText(translatedText, 1);
+                    lastSentTranslationLength = translatedText.length();
+
+                    // If this was triggered by Enter/Send, clear the field
+                    if (clearTranslationOnNextResult) {
+                        ic.finishComposingText(); // Finalize the text
+                        translationBuffer.setLength(0);
+                        translationUiManager.updateInputPreview("");
+                        lastSentTranslationLength = 0;
+                        clearTranslationOnNextResult = false;
+                        
+                        if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
+                        updateCandidates("");
+                    }
                 }
-                
-                // FIX: Automatically Clear Translation Field & Suggestions after Send
-                // Note: If you want text to clear ONLY on Enter, move this to KEYCODE_DONE block.
-                // kept here as per your previous provided code structure.
-                translationBuffer.setLength(0);
-                translationUiManager.updateInputPreview("");
-                updateCandidates(""); 
             }
 
             @Override
@@ -132,6 +142,8 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     translationBuffer.append(text);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                     translationUiManager.performTranslation(translationBuffer.toString());
+                    // Update suggestions for pasted text
+                    updateTranslationCandidates();
                 }
             }
         });
@@ -215,35 +227,23 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         btnTranslate = candidateView.findViewById(R.id.btn_translate);
         if (btnTranslate != null) btnTranslate.setOnClickListener(v -> toggleTranslationMode());
         
-        // DIRECT TRANSLATION (Globe)
         btnDirectTranslate = candidateView.findViewById(R.id.btn_direct_translate);
         if (btnDirectTranslate != null) {
-            // Long Press: Select Language
-            btnDirectTranslate.setOnLongClickListener(new View.OnLongClickListener() {
-                @Override
-                public boolean onLongClick(View v) {
-                    showDirectLanguagePopup(v);
-                    return true;
-                }
+            btnDirectTranslate.setOnLongClickListener(v -> {
+                showDirectLanguagePopup(v);
+                return true;
             });
-
-            // Single Tap Disable / Double Tap Enable
-            btnDirectTranslate.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (isDirectTranslateEnabled) {
-                        // If ON -> Single Tap turns it OFF
+            btnDirectTranslate.setOnClickListener(v -> {
+                if (isDirectTranslateEnabled) {
+                    toggleDirectTranslationMode();
+                } else {
+                    long clickTime = System.currentTimeMillis();
+                    if (clickTime - lastGlobeClickTime < 500) {
                         toggleDirectTranslationMode();
                     } else {
-                        // If OFF -> Require Double Tap to turn ON
-                        long clickTime = System.currentTimeMillis();
-                        if (clickTime - lastGlobeClickTime < 500) {
-                            toggleDirectTranslationMode();
-                        } else {
-                            Toast.makeText(BubbleKeyboardService.this, "Double tap to Enable", Toast.LENGTH_SHORT).show();
-                        }
-                        lastGlobeClickTime = clickTime;
+                        Toast.makeText(BubbleKeyboardService.this, "Double tap to Enable", Toast.LENGTH_SHORT).show();
                     }
+                    lastGlobeClickTime = clickTime;
                 }
             });
         }
@@ -268,24 +268,31 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
-    // FIX: Using Theme_Holo_Light to GUARANTEE Black text on White background
     private void showDirectLanguagePopup(View v) {
         Context wrapper = new ContextThemeWrapper(this, android.R.style.Theme_Holo_Light);
-        PopupMenu popup = new PopupMenu(wrapper, v);
-        
-        for (int i = 0; i < LanguageUtils.LANGUAGE_NAMES.length; i++) {
-            popup.getMenu().add(0, i, i, LanguageUtils.LANGUAGE_NAMES[i]);
-        }
-        popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(wrapper);
+        builder.setTitle("Select Target Language");
+        builder.setItems(LanguageUtils.LANGUAGE_NAMES, new DialogInterface.OnClickListener() {
             @Override
-            public boolean onMenuItemClick(MenuItem item) {
-                int index = item.getItemId();
+            public void onClick(DialogInterface dialog, int which) {
+                int index = which;
                 directTargetLangCode = LanguageUtils.getCode(index);
                 Toast.makeText(BubbleKeyboardService.this, "Target: " + LanguageUtils.LANGUAGE_NAMES[index], Toast.LENGTH_SHORT).show();
-                return true;
             }
         });
-        popup.show();
+        
+        AlertDialog dialog = builder.create();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            WindowManager.LayoutParams lp = window.getAttributes();
+            if (kv != null) {
+                lp.token = kv.getWindowToken();
+            }
+            lp.type = WindowManager.LayoutParams.TYPE_INPUT_METHOD_DIALOG;
+            window.setAttributes(lp);
+            window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+        }
+        dialog.show();
     }
 
     private void toggleDirectTranslationMode() {
@@ -308,23 +315,17 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         directTranslateRunnable = new Runnable() {
             @Override
             public void run() {
-                bgExecutor.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        final String result = TranslateApi.translate("auto", directTargetLangCode, text);
-                        new Handler(Looper.getMainLooper()).post(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (result != null) {
-                                    InputConnection ic = getCurrentInputConnection();
-                                    if (ic != null) {
-                                        // FIX: Use setComposingText for Direct Mode too
-                                        ic.setComposingText(result, 1);
-                                    }
-                                }
+                bgExecutor.execute(() -> {
+                    final String result = TranslateApi.translate("auto", directTargetLangCode, text);
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (result != null) {
+                            InputConnection ic = getCurrentInputConnection();
+                            if (ic != null) {
+                                ic.setComposingText(result, 1);
+                                lastDirectOutputLength = result.length();
                             }
-                        });
-                    }
+                        }
+                    });
                 });
             }
         };
@@ -344,6 +345,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
 
+        // Icon Visibility
         if (isTranslationMode) {
             if (Character.isLetterOrDigit(primaryCode)) {
                 if (toolbarContainer != null) toolbarContainer.setVisibility(View.GONE);
@@ -360,17 +362,17 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
         }
 
+        // --- DELETE KEY LOGIC ---
         if (primaryCode == Keyboard.KEYCODE_DELETE) {
             if (isTranslationMode) {
                 if (translationBuffer.length() > 0) {
                     translationBuffer.deleteCharAt(translationBuffer.length() - 1);
                     translationUiManager.updateInputPreview(translationBuffer.toString());
-                    updateCandidates(""); // Basic update
+                    updateTranslationCandidates();
                     
                     if (translationBuffer.length() == 0) {
-                         // Clear translation from app if input empty
-                         ic.finishComposingText();
-                         ic.commitText("", 1);
+                        ic.finishComposingText();
+                        ic.commitText("", 1);
                     } 
                 }
             } else if (isDirectTranslateEnabled) {
@@ -379,8 +381,8 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                     if (directBuffer.length() > 0) {
                         performDirectTranslation(directBuffer.toString());
                     } else {
-                         ic.finishComposingText();
-                         ic.commitText("", 1);
+                        ic.finishComposingText();
+                        ic.commitText("", 1);
                     }
                 } else {
                     handleBackspace();
@@ -410,15 +412,8 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
         if (primaryCode == Keyboard.KEYCODE_DONE) { 
             if (isTranslationMode) {
-                // Finalize text
-                ic.finishComposingText();
-                ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
-                
-                // Clear buffer explicitly
-                translationBuffer.setLength(0);
-                translationUiManager.updateInputPreview("");
-                if (toolbarContainer != null) toolbarContainer.setVisibility(View.VISIBLE);
-
+                clearTranslationOnNextResult = true;
+                translationUiManager.performTranslation(translationBuffer.toString());
             } else if (isDirectTranslateEnabled) {
                 ic.finishComposingText();
                 ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
@@ -501,8 +496,7 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         if (isTranslationMode) {
             translationBuffer.append(code);
             translationUiManager.updateInputPreview(translationBuffer.toString());
-            // Update suggestions if needed
-            updateCandidates(""); 
+            updateTranslationCandidates();
             
             if (toolbarContainer != null) toolbarContainer.setVisibility(View.GONE);
         } else if (isDirectTranslateEnabled) {
@@ -614,6 +608,24 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
+    private void updateTranslationCandidates() {
+        String text = translationBuffer.toString();
+        String word = "";
+        if (!text.isEmpty()) {
+            if (text.endsWith(" ")) {
+                word = ""; 
+            } else {
+                int lastSpace = text.lastIndexOf(' ');
+                if (lastSpace != -1) {
+                    word = text.substring(lastSpace + 1);
+                } else {
+                    word = text;
+                }
+            }
+        }
+        updateCandidates(word);
+    }
+
     private void updateCandidates(String wordBeingTyped) {
         if (candidateContainer == null) return;
         
@@ -639,11 +651,17 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             
             tv.setOnClickListener(v -> {
                 if (isTranslationMode) {
-                    // Update translation buffer with suggestion
+                    String currentBuffer = translationBuffer.toString();
+                    int lastSpace = currentBuffer.lastIndexOf(" ");
+                    if (lastSpace != -1) {
+                        translationBuffer.setLength(lastSpace + 1);
+                    } else {
+                        translationBuffer.setLength(0);
+                    }
                     translationBuffer.append(word).append(" ");
                     translationUiManager.updateInputPreview(translationBuffer.toString());
                     translationUiManager.performTranslation(translationBuffer.toString());
-                    updateCandidates("");
+                    updateTranslationCandidates();
                 } else {
                     InputConnection ic = getCurrentInputConnection();
                     if (ic != null) {
