@@ -261,9 +261,9 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
-    // FIX: Correctly setting token via LayoutParams
+    // FIX: Using DeviceDefault_Light_Dialog for a proper scrollable list in Keyboard Service
     private void showDirectLanguagePopup(View v) {
-        Context wrapper = new ContextThemeWrapper(this, android.R.style.Theme_Holo_Light);
+        ContextThemeWrapper wrapper = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light_Dialog);
         AlertDialog.Builder builder = new AlertDialog.Builder(wrapper);
         builder.setTitle("Select Target Language");
         builder.setItems(LanguageUtils.LANGUAGE_NAMES, new DialogInterface.OnClickListener() {
@@ -282,7 +282,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
             if (kv != null) {
                 lp.token = kv.getWindowToken();
             }
+            // Use TYPE_INPUT_METHOD_DIALOG to ensure it overlays the keyboard correctly
             lp.type = WindowManager.LayoutParams.TYPE_INPUT_METHOD_DIALOG;
+            
+            // Add flag to ensure it works smoothly with IME focus
+            lp.flags |= WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+            
             window.setAttributes(lp);
         }
         dialog.show();
