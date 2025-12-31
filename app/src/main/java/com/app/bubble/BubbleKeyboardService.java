@@ -58,6 +58,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     private Runnable directTranslateRunnable;
     private ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
+    // --- NEW AUTO SAVE VARIABLES ---
+    private ImageButton btnAutoSave;
+    private boolean isAutoSaveEnabled = false;
+    private StringBuilder autoSaveBuffer = new StringBuilder();
+    private boolean isTypingNewEntry = true; // True = Create new clip; False = Update existing clip
+
     private ImageButton btnClipboard;
     private ImageButton btnKeyboardSwitch;
     private ImageButton btnTranslate;
@@ -259,6 +265,58 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
                 startService(intent);
             });
         }
+
+        // --- NEW AUTO SAVE BUTTON SETUP ---
+        btnAutoSave = candidateView.findViewById(R.id.btn_autosave);
+        if (btnAutoSave != null) {
+            btnAutoSave.setOnClickListener(v -> toggleAutoSaveMode());
+        }
+    }
+
+    // --- NEW: Toggle Auto Save Mode ---
+    private void toggleAutoSaveMode() {
+        isAutoSaveEnabled = !isAutoSaveEnabled;
+        if (isAutoSaveEnabled) {
+            // Blue Color -> ON
+            btnAutoSave.setColorFilter(Color.parseColor("#2196F3"), PorterDuff.Mode.SRC_IN);
+            Toast.makeText(this, "Real-Time Saving ON", Toast.LENGTH_SHORT).show();
+            // Start a new tracking session
+            autoSaveBuffer.setLength(0);
+            isTypingNewEntry = true;
+        } else {
+            // No Color -> OFF
+            btnAutoSave.clearColorFilter();
+            Toast.makeText(this, "Real-Time Saving OFF", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // --- NEW: Update Clipboard in Real-Time (Safety Logic) ---
+    private void updateAutoSaveClipboard() {
+        String currentText = autoSaveBuffer.toString();
+        
+        // 1. If we are editing an existing line, delete the old version first
+        if (!isTypingNewEntry) {
+            // Assume the previous state was just 1 char shorter
+            if (currentText.length() > 0) {
+                 // We need to delete the version that was saved *before* this keystroke.
+                 // Since we don't track the exact string perfectly in variable, we rely on clipboard add/remove behavior.
+                 // Ideally, we delete the *top* item if it matches our session.
+                 // For simplicity and speed: We delete the item that corresponds to the buffer-1 char.
+                 // Note: Ideally we would use a simpler logic: just add new. But you requested "update".
+                 // So we add the new one. The user sees "growth".
+                 // To prevent spam, we *attempt* to remove the previous entry.
+                 String prevText = currentText.substring(0, currentText.length() - 1);
+                 ClipboardManagerHelper.getInstance(this).deleteItem(prevText);
+            }
+        }
+
+        // 2. Add the current text
+        if (!currentText.isEmpty()) {
+            ClipboardManagerHelper.getInstance(this).addClip(currentText);
+        }
+        
+        // 3. Mark as "Updating" for next key
+        isTypingNewEntry = false;
     }
 
     private void showDirectLanguagePopup(View v) {
@@ -376,6 +434,23 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
         // --- DELETE KEY LOGIC ---
         if (primaryCode == Keyboard.KEYCODE_DELETE) {
+            // NEW: Handle Real-Time Deletion for Auto-Save
+            if (isAutoSaveEnabled && autoSaveBuffer.length() > 0) {
+                // 1. Remove the "current" text from clipboard
+                ClipboardManagerHelper.getInstance(this).deleteItem(autoSaveBuffer.toString());
+                
+                // 2. Reduce buffer
+                autoSaveBuffer.deleteCharAt(autoSaveBuffer.length() - 1);
+                
+                // 3. Add the "new shorter" text back to clipboard (if not empty)
+                if (autoSaveBuffer.length() > 0) {
+                    ClipboardManagerHelper.getInstance(this).addClip(autoSaveBuffer.toString());
+                } else {
+                    // Buffer empty, next type is new
+                    isTypingNewEntry = true;
+                }
+            }
+
             if (isTranslationMode) {
                 if (translationBuffer.length() > 0) {
                     translationBuffer.deleteCharAt(translationBuffer.length() - 1);
@@ -422,6 +497,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
 
         if (primaryCode == Keyboard.KEYCODE_DONE) { 
+            // NEW: Enter Key finalized the text - Start new entry
+            if (isAutoSaveEnabled) {
+                isTypingNewEntry = true;
+                autoSaveBuffer.setLength(0);
+            }
+
             if (isTranslationMode) {
                 clearTranslationOnNextResult = true;
                 translationUiManager.performTranslation(translationBuffer.toString());
@@ -457,6 +538,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
 
         if (primaryCode == 32) { 
             if (!isSpaceLongPressed) {
+                // NEW: Space also saves immediately
+                if (isAutoSaveEnabled) {
+                    autoSaveBuffer.append(" ");
+                    updateAutoSaveClipboard();
+                }
+
                 if (isTranslationMode) {
                     translationBuffer.append(" ");
                     translationUiManager.updateInputPreview(translationBuffer.toString());
@@ -502,6 +589,12 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         char code = (char) primaryCode;
         if (Character.isLetter(code) && isCaps) {
             code = Character.toUpperCase(code);
+        }
+
+        // NEW: Real-Time Character Saving
+        if (isAutoSaveEnabled) {
+            autoSaveBuffer.append(code);
+            updateAutoSaveClipboard();
         }
 
         if (isTranslationMode) {
@@ -688,5 +781,4 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     @Override public void swipeRight() {}
     @Override public void swipeDown() {}
     @Override public void swipeUp() {}
-
 }
