@@ -261,28 +261,44 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
         }
     }
 
-    // FIX: Correctly setting token via LayoutParams
     private void showDirectLanguagePopup(View v) {
-        Context wrapper = new ContextThemeWrapper(this, android.R.style.Theme_Holo_Light);
+        // Use System Theme for correct look
+        Context wrapper = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light_Dialog);
         AlertDialog.Builder builder = new AlertDialog.Builder(wrapper);
         builder.setTitle("Select Target Language");
+        
         builder.setItems(LanguageUtils.LANGUAGE_NAMES, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 directTargetLangCode = LanguageUtils.getCode(which);
                 Toast.makeText(BubbleKeyboardService.this, "Target: " + LanguageUtils.LANGUAGE_NAMES[which], Toast.LENGTH_SHORT).show();
+                
+                // If translation is currently active, toggle it to refresh language
+                if (isDirectTranslateEnabled) {
+                    toggleDirectTranslationMode();
+                    toggleDirectTranslationMode();
+                }
+                
+                // Close the dialog immediately after selection
+                dialog.dismiss();
             }
         });
         
         AlertDialog dialog = builder.create();
         
+        // Setup Window attributes to prevent keyboard closing (OVERLAY TYPE)
         Window window = dialog.getWindow();
         if (window != null) {
             WindowManager.LayoutParams lp = window.getAttributes();
-            if (kv != null) {
-                lp.token = kv.getWindowToken();
+            
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                lp.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+            } else {
+                lp.type = WindowManager.LayoutParams.TYPE_PHONE;
             }
-            lp.type = WindowManager.LayoutParams.TYPE_INPUT_METHOD_DIALOG;
+            
+            // Flag to prevent stealing focus from the keyboard
+            window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
             window.setAttributes(lp);
         }
         dialog.show();
@@ -672,4 +688,5 @@ public class BubbleKeyboardService extends InputMethodService implements Keyboar
     @Override public void swipeRight() {}
     @Override public void swipeDown() {}
     @Override public void swipeUp() {}
+
 }
