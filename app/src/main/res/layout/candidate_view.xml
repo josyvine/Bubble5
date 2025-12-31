@@ -81,6 +81,17 @@
             android:padding="10dp"
             android:contentDescription="OCR Copy" />
 
+        <!-- AUTO SAVE BUTTON (NEW) -->
+        <ImageButton
+            android:id="@+id/btn_autosave"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:src="@android:drawable/ic_menu_save"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            android:contentDescription="Auto Save Mode" />
+
         <!-- Vertical Separator Line -->
         <View
             android:layout_width="1dp"
