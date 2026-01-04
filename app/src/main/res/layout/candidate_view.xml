@@ -36,7 +36,7 @@
             android:padding="10dp"
             android:contentDescription="Switch Keyboard" />
 
-        <!-- TRANSLATE BUTTON (Panel) -->
+        <!-- TRANSLATE BUTTON (Uses New Professional Icon) -->
         <ImageButton
             android:id="@+id/btn_translate"
             android:layout_width="45dp"
@@ -47,8 +47,7 @@
             android:padding="10dp"
             android:contentDescription="Translate" />
 
-        <!-- DIRECT TRANSLATE GLOBE BUTTON (New) -->
-        <!-- Long press to select language, Double tap to toggle mode -->
+        <!-- DIRECT TRANSLATE GLOBE BUTTON (Uses New Professional Icon) -->
         <ImageButton
             android:id="@+id/btn_direct_translate"
             android:layout_width="45dp"
@@ -81,7 +80,7 @@
             android:padding="10dp"
             android:contentDescription="OCR Copy" />
 
-        <!-- AUTO SAVE BUTTON (NEW) -->
+        <!-- AUTO SAVE BUTTON -->
         <ImageButton
             android:id="@+id/btn_autosave"
             android:layout_width="45dp"
