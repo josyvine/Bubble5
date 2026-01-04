@@ -82,12 +82,14 @@
              android:keyWidth="35%p" 
              android:isRepeatable="true"/>
         
-        <!-- Period -->
+        <!-- Period (.) with Gboard-style Popups -->
+        <!-- Added comma first for fast access, then symbols -->
         <Key android:codes="46" 
              android:keyLabel="." 
+             android:popupCharacters=",&amp;%+\&quot;-:'@;/()#!?"
              android:keyWidth="8%p"/>
              
-        <!-- COPY BUTTON (RESTORED - Essential for Copy Tool) -->
+        <!-- COPY BUTTON -->
         <Key android:codes="-10" 
              android:keyLabel="COPY" 
              android:keyWidth="15%p"/>
