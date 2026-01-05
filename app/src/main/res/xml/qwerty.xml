@@ -83,10 +83,11 @@
              android:isRepeatable="true"/>
         
         <!-- Period (.) with Gboard-style Popups -->
-        <!-- Added comma first for fast access, then symbols -->
+        <!-- FIX APPLIED HERE: Added popupKeyboard attribute -->
         <Key android:codes="46" 
              android:keyLabel="." 
              android:popupCharacters=",&amp;%+\&quot;-:'@;/()#!?"
+             android:popupKeyboard="@xml/popup_template"
              android:keyWidth="8%p"/>
              
         <!-- COPY BUTTON -->
