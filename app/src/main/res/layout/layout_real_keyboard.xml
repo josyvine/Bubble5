@@ -6,6 +6,7 @@
     android:layout_height="wrap_content"
     android:layout_alignParentBottom="true"
     android:keyPreviewLayout="@null"
+    android:popupLayout="@layout/keyboard_popup_template"
     android:keyBackground="@drawable/key_selector"
     android:textColor="#000000"
     android:keyTextColor="#000000"
