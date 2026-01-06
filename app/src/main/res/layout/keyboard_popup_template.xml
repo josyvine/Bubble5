@@ -7,7 +7,7 @@
     android:layout_height="wrap_content"
     android:background="#E8EAED"
     android:keyPreviewLayout="@null"
-    android:keyBackground="@android:drawable/btn_default_small"
+    android:keyBackground="@drawable/key_selector"
     android:keyTextColor="#000000"
     android:keyTextSize="22sp"
     android:shadowRadius="0.0"
