@@ -5,23 +5,24 @@
     android:horizontalGap="0px"
     android:verticalGap="0px">
 
-    <!-- ROW 1 (Top 8 Symbols) -->
+    <!-- ROW 1 (Top Row - Further from finger) -->
     <Row>
-        <Key android:codes="44" android:keyLabel="," />
+        <Key android:codes="64" android:keyLabel="@" />
         <Key android:codes="38" android:keyLabel="&amp;" />
         <Key android:codes="37" android:keyLabel="%" />
         <Key android:codes="43" android:keyLabel="+" />
-        <Key android:codes="34" android:keyLabel="\&quot;" />
         <Key android:codes="45" android:keyLabel="-" />
         <Key android:codes="58" android:keyLabel=":" />
         <Key android:codes="39" android:keyLabel="'" />
+        <Key android:codes="47" android:keyLabel="/" />
     </Row>
 
-    <!-- ROW 2 (Bottom 8 Symbols) -->
+    <!-- ROW 2 (Bottom Row - Closest to finger) -->
+    <!-- Comma is first here for easiest access -->
     <Row>
-        <Key android:codes="64" android:keyLabel="@" />
+        <Key android:codes="44" android:keyLabel="," />
+        <Key android:codes="34" android:keyLabel="\&quot;" />
         <Key android:codes="59" android:keyLabel=";" />
-        <Key android:codes="47" android:keyLabel="/" />
         <Key android:codes="40" android:keyLabel="(" />
         <Key android:codes="41" android:keyLabel=")" />
         <Key android:codes="35" android:keyLabel="#" />
