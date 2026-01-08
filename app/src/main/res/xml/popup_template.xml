@@ -2,6 +2,6 @@
 <Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
     android:keyWidth="40dp"
     android:keyHeight="55dp"
-    android:horizontalGap="2dp"
-    android:verticalGap="2dp">
+    android:horizontalGap="5dp"
+    android:verticalGap="5dp">
 </Keyboard> 
