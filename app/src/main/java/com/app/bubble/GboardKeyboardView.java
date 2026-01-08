@@ -17,13 +17,19 @@ public class GboardKeyboardView extends KeyboardView {
 
     @Override
     public boolean onTouchEvent(MotionEvent me) {
-        // 1. Let the standard keyboard handle the touch (drawing, highlighting, etc.)
+        // 1. Let the standard keyboard process the touch (highlighting, selecting key)
         boolean result = super.onTouchEvent(me);
 
-        // 2. INTERCEPT: If the user lifts their finger (ACTION_UP), force the popup to close.
-        // This ensures the popup never stays open after release.
+        // 2. INTERCEPT: If the user lifts their finger (ACTION_UP)
         if (me.getAction() == MotionEvent.ACTION_UP) {
-            closing(); // This method is built-in to dismiss the popup
+            // FIX: We use 'post' to delay the closing slightly. 
+            // This ensures the "Key Pressed" event fires BEFORE we kill the popup.
+            post(new Runnable() {
+                @Override
+                public void run() {
+                    closing(); 
+                }
+            });
         }
 
         return result;
