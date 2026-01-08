@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<android.inputmethodservice.KeyboardView
+<com.app.bubble.GboardKeyboardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/keyboard_view"
     android:layout_width="match_parent"
@@ -12,4 +12,4 @@
     android:keyTextColor="#000000"
     android:shadowColor="#00000000"
     android:shadowRadius="0.0"
-    android:background="#E8EAED" /> 
+    android:background="#E8EAED" />
