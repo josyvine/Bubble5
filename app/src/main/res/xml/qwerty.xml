@@ -83,10 +83,9 @@
              android:isRepeatable="true"/>
         
         <!-- Period (.) with Gboard-style Popups -->
-        <!-- FIX APPLIED HERE: Removed popupCharacters content, kept popupKeyboard -->
+        <!-- FIX APPLIED: Removed popupCharacters entirely -->
         <Key android:codes="46" 
              android:keyLabel="." 
-             android:popupCharacters=""
              android:popupKeyboard="@xml/popup_template"
              android:keyWidth="8%p"/>
              
