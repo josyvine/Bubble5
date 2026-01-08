@@ -11,4 +11,5 @@
     android:keyTextColor="#000000"
     android:keyTextSize="22sp"
     android:shadowRadius="0.0"
-    android:verticalCorrection="0dp" />
+    android:clickable="true"
+    android:focusable="true" />
